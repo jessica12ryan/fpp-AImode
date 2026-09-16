@@ -67,7 +67,7 @@ function aimGetProviders() {
             'label' => 'Google Gemini',
             'defaultBase' => 'https://generativelanguage.googleapis.com',
             'defaultModel' => 'gemini-2.5-flash',
-            'models' => ['gemini-2.5-flash','gemini-2.5-pro','gemini-2.0-flash','gemini-2.0-flash-001','gemini-1.5-flash','gemini-1.5-pro','gemini-1.0-pro'],
+            'models' => ['gemini-3.6-flash','gemini-2.5-flash','gemini-2.5-pro','gemini-2.0-flash','gemini-2.0-flash-001','gemini-1.5-flash','gemini-1.5-pro','gemini-1.0-pro'],
             'auth' => 'query',
             'needsKey' => true,
         ],
@@ -725,6 +725,36 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
         } else if (!$altErr) {
             // Keep the more informative error (prefer alt if it has hint)
             $resp = $altResp; $code = $altCode;
+        }
+    }
+    // If Google still 404 with "Please update your code to use models/gemini-X" — auto-retry with suggested model once
+    if ($provider === 'google' && $code === 404 && preg_match('/use models\/([a-z0-9._\-]+)/i', $resp ?? '', $sugMatch)) {
+        $suggested = $sugMatch[1];
+        if ($suggested && $suggested !== $model) {
+            aimLog('Google model deprecated, auto-retry with suggested: ' . $suggested);
+            $retryUrl = rtrim($base, '/') . '/v1beta/models/' . rawurlencode($suggested) . ':generateContent?key=' . urlencode($apiKey);
+            list($retryResp, $retryCode, $retryErr) = $doCurl($retryUrl, $headers, $body);
+            // Also try v1 with suggested if v1beta still 404
+            if (!$retryErr && $retryCode === 404 && (stripos($retryResp, 'models/') !== false)) {
+                $retryUrlV1 = str_replace('/v1beta/', '/v1/', $retryUrl);
+                list($retryResp2, $retryCode2, $retryErr2) = $doCurl($retryUrlV1, $headers, $body);
+                if (!$retryErr2 && $retryCode2 >= 200 && $retryCode2 < 300) {
+                    $retryResp = $retryResp2; $retryCode = $retryCode2; $retryErr = $retryErr2;
+                } else if (!$retryErr2) { $retryResp = $retryResp2; $retryCode = $retryCode2; }
+            }
+            if (!$retryErr && $retryCode >= 200 && $retryCode < 300) {
+                $resp = $retryResp; $code = $retryCode; $err = $retryErr;
+                // Persist the working model as new default for next saves (best-effort)
+                $current = aimLoadSettings();
+                if ($current['provider'] === 'google' && $current['model'] === $model) {
+                    $current['model'] = $suggested;
+                    @aimSaveSettings($current);
+                    aimLog('Auto-migrated Google model to ' . $suggested);
+                }
+            } else if (!$retryErr) {
+                // Keep retry error for more helpful hint (will be surfaced below)
+                $resp = $retryResp; $code = $retryCode;
+            }
         }
     }
     if ($err) return ['success'=>false,'error'=>'Curl error: ' . $err];
