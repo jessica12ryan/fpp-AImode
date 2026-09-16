@@ -1,0 +1,153 @@
+{
+    "repoName": "fpp-AImode",
+    "name": "AI Mode Plugin for FPP",
+    "author": "jessica12ryan",
+    "description": "Configure and control Falcon Player (FPP) using natural language via major AI platforms \u2014 now with voice input. Link OpenAI, Anthropic, Google Gemini, Mistral, Grok, OpenRouter, Ollama and more with API tokens to create playlists, schedules, channel outputs and settings from typed or spoken prompts. Includes conversational assistant with browser voice transcription, tool-calling execution with approval, and full FPP API coverage.",
+    "homeURL": "https://github.com/jessica12ryan/fpp-AImode",
+    "srcURL": "https://github.com/jessica12ryan/fpp-AImode.git",
+    "bugURL": "https://github.com/jessica12ryan/fpp-AImode/issues",
+    "iconURL": "https://raw.githubusercontent.com/jessica12ryan/fpp-AImode/main/icon.png",
+    "versions": [
+        {
+            "minFPPVersion": "8.0",
+            "maxFPPVersion": "8.99",
+            "branch": "main",
+            "sha": "",
+            "allowUpdates": 1,
+            "dependencies": {
+                "plugins": [],
+                "packages": [
+                    "php-curl"
+                ],
+                "scripts": []
+            }
+        },
+        {
+            "minFPPVersion": "9.0",
+            "maxFPPVersion": "9.99",
+            "branch": "main",
+            "sha": "",
+            "allowUpdates": 1,
+            "dependencies": {
+                "plugins": [],
+                "packages": [
+                    "php-curl"
+                ],
+                "scripts": []
+            }
+        },
+        {
+            "minFPPVersion": "10.0",
+            "maxFPPVersion": "0",
+            "branch": "main",
+            "sha": "",
+            "allowUpdates": 1,
+            "dependencies": {
+                "plugins": [],
+                "packages": [
+                    "php-curl"
+                ],
+                "scripts": []
+            }
+        }
+    ],
+    "privacy": {
+        "summary": "Sends prompts and FPP context to your chosen AI provider to generate config actions. Voice is transcribed in-browser; only text is sent. Nothing sent unless you click Send.",
+        "sends": [
+            {
+                "to": "api.openai.com",
+                "what": "prompt text, history and FPP context (playlists, schedules, settings)",
+                "why": "to interpret prompts and generate configuration tool calls",
+                "alwaysOn": false
+            },
+            {
+                "to": "api.anthropic.com",
+                "what": "prompt text, history and FPP context (playlists, schedules, settings)",
+                "why": "to interpret prompts and generate configuration tool calls",
+                "alwaysOn": false
+            },
+            {
+                "to": "generativelanguage.googleapis.com",
+                "what": "prompt text, history and FPP context (playlists, schedules, settings)",
+                "why": "to interpret prompts and generate configuration tool calls",
+                "alwaysOn": false
+            },
+            {
+                "to": "api.mistral.ai",
+                "what": "prompt text, history and FPP context (playlists, schedules, settings)",
+                "why": "to interpret prompts and generate configuration tool calls",
+                "alwaysOn": false
+            },
+            {
+                "to": "api.x.ai",
+                "what": "prompt text, history and FPP context (playlists, schedules, settings)",
+                "why": "to interpret prompts and generate configuration tool calls",
+                "alwaysOn": false
+            },
+            {
+                "to": "openrouter.ai",
+                "what": "prompt text, history and FPP context (playlists, schedules, settings)",
+                "why": "to interpret prompts and generate configuration tool calls",
+                "alwaysOn": false
+            },
+            {
+                "to": "your Ollama host on your LAN",
+                "what": "prompt text, history and FPP context (playlists, schedules, settings)",
+                "why": "to interpret prompts locally without cloud",
+                "alwaysOn": false
+            },
+            {
+                "to": "your Azure OpenAI endpoint",
+                "what": "prompt text, history and FPP context (playlists, schedules, settings)",
+                "why": "to interpret prompts and generate configuration tool calls",
+                "alwaysOn": false
+            },
+            {
+                "to": "browser speech service (when using voice)",
+                "what": "microphone audio while Listening for transcription",
+                "why": "to convert voice to text in the browser before prompting",
+                "alwaysOn": false
+            }
+        ],
+        "collects": [
+            {
+                "what": "AI provider credentials (api key, base url, model, provider)",
+                "about": "operator",
+                "keptDays": null,
+                "canDelete": true,
+                "where": "plugindata/fpp-AImode/settings.json"
+            },
+            {
+                "what": "conversation history including transcribed voice text",
+                "about": "operator",
+                "keptDays": 30,
+                "canDelete": true,
+                "where": "plugindata/fpp-AImode/history.json"
+            },
+            {
+                "what": "voice preferences (language, auto-send)",
+                "about": "operator",
+                "keptDays": null,
+                "canDelete": true,
+                "where": "browser localStorage fppAImode_voiceLang, fppAImode_voiceAutoSend"
+            },
+            {
+                "what": "logs",
+                "about": "operator",
+                "keptDays": null,
+                "canDelete": false,
+                "where": "plugin log"
+            }
+        ],
+        "sensors": [
+            {
+                "type": "microphone",
+                "stored": false
+            }
+        ],
+        "remoteAccess": "none",
+        "systemChanges": [],
+        "closedCode": false,
+        "other": "API keys stored in plugindata with 0600. Use FPP UI password if exposed. Keys and audio never logged. Voice uses browser Web Speech API per browser privacy."
+    }
+}

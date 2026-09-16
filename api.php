@@ -1,0 +1,1182 @@
+<?php
+/**
+ * #############################################################
+ * ## AI Mode Plugin for FPP (fpp-AImode)                     ##
+ * ## Author: jessica12ryan                                   ##
+ * ## URL: https://github.com/jessica12ryan/fpp-AImode        ##
+ * ## api.php                                                 ##
+ * #############################################################
+ */
+
+define('AIM_PLUGIN_DIR', __DIR__);
+define('AIM_MAX_HISTORY', 40);
+define('AIM_MAX_TOKENS_DEFAULT', 2048);
+
+/* ── Logging — exactly one file: <logdir>/plugin-fpp-AImode.log ── */
+/* Resolves log dir the FPP-provided way: PHP $settings['logDirectory'] first, then LOGDIR env */
+
+function aimGetLogFile() {
+    // GUIDELINE §1.1 — resolve log dir the FPP-provided way: PHP $settings['logDirectory'] first, then LOGDIR env
+    if (isset($GLOBALS['settings']['logDirectory']) && $GLOBALS['settings']['logDirectory'] !== '') {
+        return rtrim($GLOBALS['settings']['logDirectory'], '/') . '/plugin-fpp-AImode.log';
+    }
+    $env = getenv('LOGDIR');
+    if ($env && $env !== '') {
+        return rtrim($env, '/') . '/plugin-fpp-AImode.log';
+    }
+    $media = $GLOBALS['settings']['mediaDirectory'] ?? getenv('MEDIADIR') ?: null;
+    if ($media && $media !== '') {
+        return rtrim($media, '/') . '/logs/plugin-fpp-AImode.log';
+    }
+    // No FPP context (CLI lint outside FPP) — no file to write, caller will no-op
+    return null;
+}
+
+
+
+function aimLog($msg) {
+    // Redact anything that looks like an API key — never log secrets (§1.3)
+    $msg = preg_replace('/(sk-[A-Za-z0-9_\-]{8,}|sk-ant-[A-Za-z0-9_\-]{8,}|sk-or-[A-Za-z0-9_\-]{8,}|xai-[A-Za-z0-9]{8,}|AIza[0-9A-Za-z_\-]{20,})/', '***REDACTED***', $msg);
+    $msg = preg_replace('/("api_key"\s*:\s*")[^"]+(")/', '$1***$2', $msg);
+    $logFile = aimGetLogFile();
+    if ($logFile === null || $logFile === '') return;
+    @file_put_contents($logFile, date('Y-m-d H:i:s') . ' fpp-AImode api: ' . $msg . "\n", FILE_APPEND | LOCK_EX);
+}
+
+/* ── Provider catalog ── */
+
+function aimGetProviders() {
+    return [
+        'openai' => [
+            'label' => 'OpenAI',
+            'defaultBase' => 'https://api.openai.com/v1',
+            'defaultModel' => 'gpt-4o-mini',
+            'models' => ['gpt-4o','gpt-4o-mini','gpt-4-turbo','o1','o1-mini','o3-mini'],
+            'auth' => 'bearer',
+            'needsKey' => true,
+        ],
+        'anthropic' => [
+            'label' => 'Anthropic (Claude)',
+            'defaultBase' => 'https://api.anthropic.com',
+            'defaultModel' => 'claude-3-5-sonnet-20241022',
+            'models' => ['claude-3-5-sonnet-20241022','claude-3-5-haiku-20241022','claude-3-opus-20240229','claude-3-haiku-20240307'],
+            'auth' => 'x-api-key',
+            'needsKey' => true,
+        ],
+        'google' => [
+            'label' => 'Google Gemini',
+            'defaultBase' => 'https://generativelanguage.googleapis.com',
+            'defaultModel' => 'gemini-1.5-flash',
+            'models' => ['gemini-1.5-flash','gemini-1.5-pro','gemini-2.0-flash','gemini-1.0-pro'],
+            'auth' => 'query',
+            'needsKey' => true,
+        ],
+        'mistral' => [
+            'label' => 'Mistral',
+            'defaultBase' => 'https://api.mistral.ai/v1',
+            'defaultModel' => 'mistral-large-latest',
+            'models' => ['mistral-large-latest','mistral-small-latest','mistral-nemo','open-mistral-7b'],
+            'auth' => 'bearer',
+            'needsKey' => true,
+        ],
+        'grok' => [
+            'label' => 'Grok (xAI)',
+            'defaultBase' => 'https://api.x.ai/v1',
+            'defaultModel' => 'grok-2',
+            'models' => ['grok-2','grok-beta','grok-2-mini'],
+            'auth' => 'bearer',
+            'needsKey' => true,
+        ],
+        'openrouter' => [
+            'label' => 'OpenRouter',
+            'defaultBase' => 'https://openrouter.ai/api/v1',
+            'defaultModel' => 'openai/gpt-4o-mini',
+            'models' => ['openai/gpt-4o','openai/gpt-4o-mini','anthropic/claude-3.5-sonnet','google/gemini-flash-1.5','mistralai/mistral-large'],
+            'auth' => 'bearer',
+            'needsKey' => true,
+        ],
+        'ollama' => [
+            'label' => 'Ollama (Local)',
+            'defaultBase' => 'http://localhost:11434',
+            'defaultModel' => 'llama3.1',
+            'models' => ['llama3.1','qwen2.5','mistral','gemma2','phi3'],
+            'auth' => 'none',
+            'needsKey' => false,
+        ],
+        'azure' => [
+            'label' => 'Azure OpenAI',
+            'defaultBase' => 'https://{your-endpoint}.openai.azure.com',
+            'defaultModel' => 'gpt-4o',
+            'models' => ['gpt-4o','gpt-4o-mini','gpt-35-turbo'],
+            'auth' => 'api-key',
+            'needsKey' => true,
+        ],
+    ];
+}
+
+function aimProviderExists($provider) {
+    return isset(aimGetProviders()[$provider]);
+}
+
+/* ── Settings ── */
+
+function aimDefaultSettings() {
+    return [
+        'provider' => 'openai',
+        'api_key' => '',
+        'model' => 'gpt-4o-mini',
+        'base_url' => '',
+        'system_prompt' => '',
+        'temperature' => 0.7,
+        'max_tokens' => AIM_MAX_TOKENS_DEFAULT,
+        'auto_approve' => 0,
+        'dry_run' => 0,
+        'include_fpp_context' => 1,
+        'history_enabled' => 1,
+    ];
+}
+
+/* ── Settings storage — credentials in plugindata per §14.11 / §5 ── */
+/* Sensitive data (api_key) must be in plugindata, not config, so crash bundles and backups don't carry it in clear.
+   Legacy path config/settings.json inside plugin dir is migrated on read. */
+function aimGetDataDir() {
+    // GUIDELINE §5 — data in <mediadir>/plugindata; resolve mediadir the FPP way
+    $media = $GLOBALS['settings']['mediaDirectory'] ?? getenv('MEDIADIR') ?: null;
+    if ($media && $media !== '') return rtrim($media, '/') . '/plugindata/fpp-AImode';
+    // Fallback for CLI/lint outside FPP — use plugin dir plugindata subdir for dev
+    return AIM_PLUGIN_DIR . '/plugindata';
+}
+function aimGetSettingsFile() {
+    return aimGetDataDir() . '/settings.json';
+}
+function aimGetHistoryFile() {
+    return aimGetDataDir() . '/history.json';
+}
+function aimGetLegacySettingsFile() {
+    return AIM_PLUGIN_DIR . '/config/settings.json';
+}
+function aimGetLegacyHistoryFile() {
+    return AIM_PLUGIN_DIR . '/config/history.json';
+}
+function aimMigrateLegacyIfNeeded() {
+    $new = aimGetSettingsFile();
+    $legacy = aimGetLegacySettingsFile();
+    if (!file_exists($new) && file_exists($legacy)) {
+        $dir = dirname($new);
+        if (!is_dir($dir)) @mkdir($dir, 0775, true);
+        @copy($legacy, $new);
+        @chmod($new, 0600);
+    }
+    $newH = aimGetHistoryFile();
+    $legacyH = aimGetLegacyHistoryFile();
+    if (!file_exists($newH) && file_exists($legacyH)) {
+        $dir = dirname($newH);
+        if (!is_dir($dir)) @mkdir($dir, 0775, true);
+        @copy($legacyH, $newH);
+        @chmod($newH, 0600);
+    }
+}
+
+function aimLoadSettings() {
+    aimMigrateLegacyIfNeeded();
+    $defaults = aimDefaultSettings();
+    $file = aimGetSettingsFile();
+    if (!file_exists($file)) {
+        // Fallback: also check legacy direct if migration didn't run (e.g. permissions)
+        $legacy = aimGetLegacySettingsFile();
+        if (file_exists($legacy)) $file = $legacy;
+        else return $defaults;
+    }
+    $raw = @file_get_contents($file);
+    if ($raw === false || trim($raw) === '') {
+        return $defaults;
+    }
+    $s = json_decode($raw, true);
+    if (!is_array($s)) {
+        aimLog('WARNING settings.json corrupt, using defaults');
+        return $defaults;
+    }
+    $merged = array_merge($defaults, $s);
+    // Clamp
+    $merged['temperature'] = max(0, min(2, (float)$merged['temperature']));
+    $merged['max_tokens'] = max(64, min(16384, (int)$merged['max_tokens']));
+    if (!aimProviderExists($merged['provider'])) {
+        $merged['provider'] = 'openai';
+    }
+    return $merged;
+}
+
+function aimSaveSettings($arr) {
+    $defaults = aimDefaultSettings();
+    $data = array_merge($defaults, $arr);
+    // Sanitize — key name contains Key so crash bundler redacts if ever under config (but we store in plugindata anyway per §14.11)
+    $data['provider'] = preg_replace('/[^a-z_]/', '', strtolower($data['provider'] ?? 'openai'));
+    if (!aimProviderExists($data['provider'])) $data['provider'] = 'openai';
+    $data['api_key'] = trim((string)($data['api_key'] ?? ''));
+    $data['model'] = trim((string)($data['model'] ?? $defaults['model']));
+    if ($data['model'] === '') $data['model'] = aimGetProviders()[$data['provider']]['defaultModel'];
+    $data['base_url'] = rtrim(trim((string)($data['base_url'] ?? '')), '/');
+    $data['system_prompt'] = (string)($data['system_prompt'] ?? '');
+    $data['temperature'] = max(0, min(2, (float)($data['temperature'] ?? 0.7)));
+    $data['max_tokens'] = max(64, min(16384, (int)($data['max_tokens'] ?? AIM_MAX_TOKENS_DEFAULT)));
+    $data['auto_approve'] = !empty($data['auto_approve']) ? 1 : 0;
+    $data['dry_run'] = !empty($data['dry_run']) ? 1 : 0;
+    $data['include_fpp_context'] = !empty($data['include_fpp_context']) ? 1 : 0;
+    $data['history_enabled'] = !empty($data['history_enabled']) ? 1 : 0;
+
+    $file = aimGetSettingsFile();
+    $dir = dirname($file);
+    if (!is_dir($dir)) @mkdir($dir, 0775, true);
+    $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    if ($json === false) return false;
+    $ok = @file_put_contents($file, $json . "\n", LOCK_EX);
+    if ($ok !== false) @chmod($file, 0600);
+    // Best-effort: remove legacy file after successful migration to avoid duplicate secrets
+    if ($ok !== false) @unlink(aimGetLegacySettingsFile());
+    return $ok !== false;
+}
+
+function aimEffectiveBaseUrl($settings) {
+    $provider = $settings['provider'] ?? 'openai';
+    $providers = aimGetProviders();
+    $default = $providers[$provider]['defaultBase'] ?? '';
+    $custom = trim($settings['base_url'] ?? '');
+    return $custom !== '' ? $custom : $default;
+}
+
+/* ── History ── */
+
+function aimLoadHistory() {
+    aimMigrateLegacyIfNeeded();
+    $file = aimGetHistoryFile();
+    if (!file_exists($file)) {
+        $legacy = aimGetLegacyHistoryFile();
+        if (file_exists($legacy)) $file = $legacy;
+        else return [];
+    }
+    $raw = @file_get_contents($file);
+    $arr = json_decode($raw ?: '[]', true);
+    return is_array($arr) ? $arr : [];
+}
+
+function aimSaveHistory($history) {
+    $file = aimGetHistoryFile();
+    $dir = dirname($file);
+    if (!is_dir($dir)) @mkdir($dir, 0775, true);
+    // Keep last N — retention 30 days is enforced on read; here just cap count
+    $history = array_slice($history, -AIM_MAX_HISTORY);
+    @file_put_contents($file, json_encode($history, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n", LOCK_EX);
+    @chmod($file, 0600);
+}
+
+function aimAppendHistory($role, $content, $meta = []) {
+    $settings = aimLoadSettings();
+    if (empty($settings['history_enabled'])) return;
+    $h = aimLoadHistory();
+    $entry = ['role' => $role, 'content' => $content, 'ts' => date('Y-m-d H:i:s')];
+    if (!empty($meta)) $entry['meta'] = $meta;
+    $h[] = $entry;
+    aimSaveHistory($h);
+}
+
+function aimClearHistory() {
+    @unlink(aimGetHistoryFile());
+    @unlink(aimGetLegacyHistoryFile());
+}
+
+/* ── FPP context helpers ── */
+
+function aimFppGet($path, $timeout = 2) {
+    // GUIDELINE §3.3 — use the proxied Apache path http://localhost/api/*, NEVER the raw fppd port :32322
+    $urls = [
+        'http://localhost' . $path,
+        'http://127.0.0.1' . $path,
+    ];
+    foreach ($urls as $url) {
+        $ctx = stream_context_create(['http' => ['timeout' => $timeout, 'ignore_errors' => true, 'header' => "Accept: application/json\r\n"]]);
+        $raw = @file_get_contents($url, false, $ctx);
+        if ($raw !== false && $raw !== '') {
+            $decoded = json_decode($raw, true);
+            if ($decoded !== null) return $decoded;
+            return $raw;
+        }
+        // curl fallback
+        if (function_exists('curl_init')) {
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Accept: application/json']);
+            $tmp = @curl_exec($ch);
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($tmp !== false && $code >= 200 && $code < 300 && $tmp !== '') {
+                $decoded = json_decode($tmp, true);
+                if ($decoded !== null) return $decoded;
+                return $tmp;
+            }
+        }
+    }
+    return null;
+}
+
+function aimFppRequest($method, $path, $body = null, $timeout = 5) {
+    $url = 'http://localhost' . $path;
+    $headers = ['Content-Type: application/json', 'Accept: application/json'];
+    $content = $body !== null ? json_encode($body) : null;
+
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        if ($content !== null) curl_setopt($ch, CURLOPT_POSTFIELDS, $content);
+        $resp = @curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+        if ($err) return ['success' => false, 'error' => $err, 'code' => 0];
+        $decoded = json_decode($resp, true);
+        return ['success' => $code >= 200 && $code < 300, 'code' => $code, 'body' => $decoded !== null ? $decoded : $resp];
+    }
+    $opts = ['http' => ['method' => $method, 'header' => implode("\r\n", $headers), 'timeout' => $timeout, 'ignore_errors' => true]];
+    if ($content !== null) $opts['http']['content'] = $content;
+    $resp = @file_get_contents($url, false, stream_context_create($opts));
+    $decoded = json_decode($resp ?: '', true);
+    // file_get_contents doesn't give status code easily; treat non-false as success if JSON
+    if ($resp === false) return ['success' => false, 'error' => 'file_get_contents failed', 'code' => 0];
+    return ['success' => true, 'code' => 200, 'body' => $decoded !== null ? $decoded : $resp];
+}
+
+function aimGetFppContext($short = false) {
+    $status = aimFppGet('/api/fppd/status', 2);
+    $settings = aimFppGet('/api/settings', 2);
+    $playlists = aimFppGet('/api/playlists', 2);
+    $schedules = aimFppGet('/api/schedule', 2);
+
+    // Summarize to keep token usage reasonable
+    $ctx = [
+        'fpp_status' => $status,
+        'settings_summary' => is_array($settings) ? array_intersect_key($settings, array_flip(['HostName','HostDescription','Volume','AudioOutput','TimeZone'])) : $settings,
+        'playlists' => is_array($playlists) ? array_map(function($p){ return is_array($p) ? ($p['name'] ?? $p) : $p; }, array_slice($playlists, 0, 20)) : $playlists,
+        'schedule_count' => is_array($schedules) ? count($schedules) : null,
+    ];
+    if ($short) {
+        return json_encode($ctx, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_IGNORE);
+    }
+    // Full-ish: include first few playlists detail and outputs
+    $outputs = aimFppGet('/api/channel/output', 2);
+    $ctx['outputs_summary'] = $outputs;
+
+    $json = json_encode($ctx, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_IGNORE);
+    // Truncate to ~6000 chars to avoid exceeding model context
+    if (strlen($json) > 6000) $json = substr($json, 0, 6000) . "\n...[truncated]";
+    return $json;
+}
+
+/* ── Tool definitions (FPP actions the AI can propose) ── */
+
+function aimGetTools() {
+    return [
+        [
+            'name' => 'get_status',
+            'description' => 'Get current FPPD status (playing, playlist, schedule, volume). No arguments.',
+            'parameters' => ['type' => 'object', 'properties' => (object)[], 'required' => []],
+        ],
+        [
+            'name' => 'get_settings',
+            'description' => 'Get FPP system settings. Optionally filter by key. Use to inspect before changing.',
+            'parameters' => ['type' => 'object', 'properties' => ['key' => ['type' => 'string', 'description' => 'Optional single setting key to fetch']], 'required' => []],
+        ],
+        [
+            'name' => 'update_settings',
+            'description' => 'Update one or more FPP settings. Example: {"Volume": 80, "HostDescription": "My Show"}',
+            'parameters' => ['type' => 'object', 'properties' => ['settings' => ['type' => 'object', 'description' => 'Key-value map of settings to set']], 'required' => ['settings']],
+        ],
+        [
+            'name' => 'list_playlists',
+            'description' => 'List all playlists on this FPP.',
+            'parameters' => ['type' => 'object', 'properties' => (object)[], 'required' => []],
+        ],
+        [
+            'name' => 'get_playlist',
+            'description' => 'Get a specific playlist by name.',
+            'parameters' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string']], 'required' => ['name']],
+        ],
+        [
+            'name' => 'create_playlist',
+            'description' => 'Create or overwrite a playlist. entries is array of {type, sequence, media, etc}.',
+            'parameters' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string'], 'entries' => ['type' => 'array', 'items' => ['type' => 'object']], 'shuffle' => ['type' => 'boolean']], 'required' => ['name','entries']],
+        ],
+        [
+            'name' => 'delete_playlist',
+            'description' => 'Delete a playlist by name.',
+            'parameters' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string']], 'required' => ['name']],
+        ],
+        [
+            'name' => 'list_schedules',
+            'description' => 'List scheduler entries.',
+            'parameters' => ['type' => 'object', 'properties' => (object)[], 'required' => []],
+        ],
+        [
+            'name' => 'create_schedule',
+            'description' => 'Create a schedule. Provide playlistName, startTime, endTime, days (e.g. MTWThFSaSu or 127), repeat, enabled.',
+            'parameters' => ['type' => 'object', 'properties' => ['playlistName' => ['type' => 'string'], 'startTime' => ['type' => 'string', 'description' => 'HH:MM:SS'], 'endTime' => ['type' => 'string', 'description' => 'HH:MM:SS'], 'days' => ['type' => 'string', 'description' => 'e.g. MTWThFSaSu or bitmask'], 'repeat' => ['type' => 'boolean'], 'enabled' => ['type' => 'boolean']], 'required' => ['playlistName','startTime','endTime']],
+        ],
+        [
+            'name' => 'delete_schedule',
+            'description' => 'Delete a schedule by index.',
+            'parameters' => ['type' => 'object', 'properties' => ['index' => ['type' => 'integer']], 'required' => ['index']],
+        ],
+        [
+            'name' => 'list_outputs',
+            'description' => 'List channel outputs (E1.31, GPIO, etc).',
+            'parameters' => ['type' => 'object', 'properties' => (object)[], 'required' => []],
+        ],
+        [
+            'name' => 'get_system_info',
+            'description' => 'Get FPP system info (version, Pi model, storage, network).',
+            'parameters' => ['type' => 'object', 'properties' => (object)[], 'required' => []],
+        ],
+        [
+            'name' => 'restart_fppd',
+            'description' => 'Set the FPPD restart flag. Use after config changes that require restart.',
+            'parameters' => ['type' => 'object', 'properties' => (object)[], 'required' => []],
+        ],
+    ];
+}
+
+function aimExecuteTool($name, $args) {
+    if (!is_array($args)) $args = [];
+    switch ($name) {
+        case 'get_status':
+            $data = aimFppGet('/api/fppd/status', 3);
+            return $data !== null ? ['success'=>true,'result'=>$data] : ['success'=>false,'error'=>'Could not reach FPPD status'];
+        case 'get_settings':
+            if (!empty($args['key'])) {
+                $v = aimFppGet('/api/settings/' . urlencode($args['key']), 3);
+                return ['success'=>true,'result'=>[$args['key']=>$v]];
+            }
+            $data = aimFppGet('/api/settings', 3);
+            return $data !== null ? ['success'=>true,'result'=>$data] : ['success'=>false,'error'=>'Could not fetch settings'];
+        case 'update_settings':
+            if (empty($args['settings']) || !is_array($args['settings'])) {
+                return ['success'=>false,'error'=>'settings must be an object'];
+            }
+            // FPP expects PUT /api/settings with JSON body; we do per-key or bulk
+            $res = aimFppRequest('PUT', '/api/settings', $args['settings'], 4);
+            return $res['success'] ? ['success'=>true,'result'=>$res['body']] : ['success'=>false,'error'=>$res['error'] ?? 'update failed', 'code'=>$res['code']];
+        case 'list_playlists':
+            $data = aimFppGet('/api/playlists', 3);
+            return $data !== null ? ['success'=>true,'result'=>$data] : ['success'=>false,'error'=>'Could not list playlists'];
+        case 'get_playlist':
+            if (empty($args['name'])) return ['success'=>false,'error'=>'name required'];
+            $data = aimFppGet('/api/playlist/' . urlencode($args['name']), 3);
+            return $data !== null ? ['success'=>true,'result'=>$data] : ['success'=>false,'error'=>'Playlist not found'];
+        case 'create_playlist':
+            if (empty($args['name'])) return ['success'=>false,'error'=>'name required'];
+            if (empty($args['entries']) || !is_array($args['entries'])) return ['success'=>false,'error'=>'entries array required'];
+            $body = ['name'=>$args['name'],'entries'=>$args['entries']];
+            if (isset($args['shuffle'])) $body['shuffle'] = (bool)$args['shuffle'];
+            // FPP playlist creation: POST /api/playlist/<name> or PUT; try POST
+            $res = aimFppRequest('POST', '/api/playlist/' . urlencode($args['name']), $body, 5);
+            if (!$res['success']) $res = aimFppRequest('PUT', '/api/playlist/' . urlencode($args['name']), $body, 5);
+            return $res['success'] ? ['success'=>true,'result'=>$res['body']] : ['success'=>false,'error'=>$res['error'] ?? 'create failed'];
+        case 'delete_playlist':
+            if (empty($args['name'])) return ['success'=>false,'error'=>'name required'];
+            $res = aimFppRequest('DELETE', '/api/playlist/' . urlencode($args['name']), null, 4);
+            return $res['success'] ? ['success'=>true,'result'=>$res['body']] : ['success'=>false,'error'=>$res['error'] ?? 'delete failed'];
+        case 'list_schedules':
+            $data = aimFppGet('/api/schedule', 3);
+            // Fallback path
+            if ($data === null) $data = aimFppGet('/api/scheduler', 3);
+            return $data !== null ? ['success'=>true,'result'=>$data] : ['success'=>false,'error'=>'Could not list schedules'];
+        case 'create_schedule':
+            if (empty($args['playlistName'])) return ['success'=>false,'error'=>'playlistName required'];
+            $entry = [
+                'playlist' => $args['playlistName'],
+                'startTime' => $args['startTime'] ?? '18:00:00',
+                'endTime' => $args['endTime'] ?? '22:00:00',
+                'days' => $args['days'] ?? 'MTWThFSaSu',
+                'repeat' => !empty($args['repeat']) ? 1 : 0,
+                'enabled' => isset($args['enabled']) ? (int)(bool)$args['enabled'] : 1,
+            ];
+            $res = aimFppRequest('POST', '/api/schedule', $entry, 5);
+            if (!$res['success']) $res = aimFppRequest('POST', '/api/scheduler', $entry, 5);
+            return $res['success'] ? ['success'=>true,'result'=>$res['body']] : ['success'=>false,'error'=>$res['error'] ?? 'create schedule failed'];
+        case 'delete_schedule':
+            if (!isset($args['index'])) return ['success'=>false,'error'=>'index required'];
+            $res = aimFppRequest('DELETE', '/api/schedule/' . (int)$args['index'], null, 4);
+            if (!$res['success']) $res = aimFppRequest('DELETE', '/api/scheduler/' . (int)$args['index'], null, 4);
+            return $res['success'] ? ['success'=>true,'result'=>$res['body']] : ['success'=>false,'error'=>$res['error'] ?? 'delete failed'];
+        case 'list_outputs':
+            $data = aimFppGet('/api/channel/output', 3);
+            return $data !== null ? ['success'=>true,'result'=>$data] : ['success'=>false,'error'=>'Could not fetch outputs'];
+        case 'get_system_info':
+            $data = aimFppGet('/api/system/info', 3);
+            if ($data === null) $data = aimFppGet('/api/fppd/status', 3);
+            return $data !== null ? ['success'=>true,'result'=>$data] : ['success'=>false,'error'=>'Could not fetch system info'];
+        case 'restart_fppd':
+            $res = aimFppRequest('PUT', '/api/settings/restartFlag', 1, 3);
+            return $res['success'] ? ['success'=>true,'result'=>'restart flag set'] : ['success'=>false,'error'=>$res['error'] ?? 'restartFlag failed'];
+        default:
+            return ['success'=>false,'error'=>'Unknown tool: ' . $name];
+    }
+}
+
+/* ── Provider calls (normalized to reply + tool_calls) ── */
+
+function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
+    $provider = $settings['provider'] ?? 'openai';
+    $apiKey = $settings['api_key'] ?? '';
+    $model = $settings['model'] ?? '';
+    $base = aimEffectiveBaseUrl($settings);
+    $temperature = (float)($settings['temperature'] ?? 0.7);
+    $maxTokens = (int)($settings['max_tokens'] ?? AIM_MAX_TOKENS_DEFAULT);
+    $providers = aimGetProviders();
+    if (!isset($providers[$provider])) return ['success'=>false,'error'=>'Unknown provider: ' . $provider];
+    $meta = $providers[$provider];
+    if ($meta['needsKey'] && $apiKey === '' && $provider !== 'ollama') {
+        return ['success'=>false,'error'=>'API key not configured for ' . $meta['label']];
+    }
+    if ($model === '') $model = $meta['defaultModel'];
+
+    // Build provider-specific request
+    $url = '';
+    $headers = [];
+    $body = null;
+
+    if ($provider === 'openai' || $provider === 'mistral' || $provider === 'grok' || $provider === 'openrouter') {
+        $url = rtrim($base, '/') . '/chat/completions';
+        $headers = ['Content-Type: application/json', 'Authorization: Bearer ' . $apiKey];
+        if ($provider === 'openrouter') {
+            $headers[] = 'HTTP-Referer: https://github.com/jessica12ryan/fpp-AImode';
+            $headers[] = 'X-Title: FPP AI Mode';
+        }
+        $payload = [
+            'model' => $model,
+            'messages' => $messages,
+            'temperature' => $temperature,
+            'max_tokens' => $maxTokens,
+        ];
+        if (!empty($tools)) {
+            $payload['tools'] = array_map(function($t){
+                return ['type'=>'function','function'=>['name'=>$t['name'],'description'=>$t['description'],'parameters'=>$t['parameters']]];
+            }, $tools);
+            $payload['tool_choice'] = 'auto';
+        }
+        $body = json_encode($payload);
+    } elseif ($provider === 'azure') {
+        // Azure: base is like https://xxx.openai.azure.com ; deployment = model ; need api-version
+        $url = rtrim($base, '/') . '/openai/deployments/' . rawurlencode($model) . '/chat/completions?api-version=2024-02-15-preview';
+        $headers = ['Content-Type: application/json', 'api-key: ' . $apiKey];
+        $payload = [
+            'messages' => $messages,
+            'temperature' => $temperature,
+            'max_tokens' => $maxTokens,
+        ];
+        if (!empty($tools)) {
+            $payload['tools'] = array_map(function($t){
+                return ['type'=>'function','function'=>['name'=>$t['name'],'description'=>$t['description'],'parameters'=>$t['parameters']]];
+            }, $tools);
+            $payload['tool_choice'] = 'auto';
+        }
+        $body = json_encode($payload);
+    } elseif ($provider === 'anthropic') {
+        // Anthropic uses different shape; convert messages
+        $url = rtrim($base, '/') . '/v1/messages';
+        $headers = ['Content-Type: application/json', 'x-api-key: ' . $apiKey, 'anthropic-version: 2023-06-01'];
+        $sys = '';
+        $converted = [];
+        foreach ($messages as $m) {
+            if ($m['role'] === 'system') { $sys .= ($sys ? "\n" : "") . $m['content']; continue; }
+            // Anthropic expects content as string or array; keep string
+            $converted[] = ['role' => $m['role'] === 'assistant' ? 'assistant' : 'user', 'content' => $m['content']];
+        }
+        $payload = [
+            'model' => $model,
+            'max_tokens' => $maxTokens,
+            'temperature' => $temperature,
+            'messages' => $converted,
+        ];
+        if ($sys !== '') $payload['system'] = $sys;
+        if (!empty($tools)) {
+            $payload['tools'] = array_map(function($t){
+                return ['name'=>$t['name'],'description'=>$t['description'],'input_schema'=>$t['parameters']];
+            }, $tools);
+        }
+        $body = json_encode($payload);
+    } elseif ($provider === 'google') {
+        // Gemini: POST {base}/v1beta/models/{model}:generateContent?key=APIKEY
+        $url = rtrim($base, '/') . '/v1beta/models/' . rawurlencode($model) . ':generateContent?key=' . urlencode($apiKey);
+        $headers = ['Content-Type: application/json'];
+        // Convert messages to Gemini format: system + user/model contents
+        $sysText = '';
+        $contents = [];
+        foreach ($messages as $m) {
+            if ($m['role'] === 'system') { $sysText .= ($sysText ? "\n" : "") . $m['content']; continue; }
+            $role = $m['role'] === 'assistant' ? 'model' : 'user';
+            $contents[] = ['role'=>$role,'parts'=>[['text'=>$m['content']]]];
+        }
+        // Inject system as first user instruction if present
+        if ($sysText !== '') {
+            array_unshift($contents, ['role'=>'user','parts'=>[['text'=>'System instructions: ' . $sysText]]]);
+        }
+        $payload = ['contents'=>$contents, 'generationConfig'=>['temperature'=>$temperature,'maxOutputTokens'=>$maxTokens]];
+        if (!empty($tools)) {
+            $payload['tools'] = [['functionDeclarations'=> array_map(function($t){
+                return ['name'=>$t['name'],'description'=>$t['description'],'parameters'=>$t['parameters']];
+            }, $tools)]];
+        }
+        $body = json_encode($payload);
+    } elseif ($provider === 'ollama') {
+        $url = rtrim($base, '/') . '/api/chat';
+        $headers = ['Content-Type: application/json'];
+        $payload = [
+            'model' => $model,
+            'messages' => $messages,
+            'stream' => false,
+            'options' => ['temperature'=>$temperature, 'num_predict'=>$maxTokens],
+        ];
+        if (!empty($tools)) {
+            $payload['tools'] = array_map(function($t){
+                return ['type'=>'function','function'=>['name'=>$t['name'],'description'=>$t['description'],'parameters'=>$t['parameters']]];
+            }, $tools);
+        }
+        $body = json_encode($payload);
+    } else {
+        return ['success'=>false,'error'=>'Provider not implemented: ' . $provider];
+    }
+
+    // Curl
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 8);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+    // For Ollama local http, don't verify
+    if ($provider === 'ollama' && strpos($url, 'https://') !== 0) curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+
+    $resp = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err  = curl_error($ch);
+    curl_close($ch);
+
+    if ($err) return ['success'=>false,'error'=>'Curl error: ' . $err];
+    if ($code < 200 || $code >= 300) {
+        $snippet = substr($resp ?: '', 0, 800);
+        return ['success'=>false,'error'=>"HTTP $code: $snippet"];
+    }
+    $decoded = json_decode($resp, true);
+    if ($decoded === null) return ['success'=>false,'error'=>'Invalid JSON from provider'];
+
+    // Normalize to {reply, tool_calls, raw}
+    $reply = '';
+    $toolCalls = [];
+
+    if ($provider === 'openai' || $provider === 'mistral' || $provider === 'grok' || $provider === 'openrouter' || $provider === 'azure') {
+        $choice = $decoded['choices'][0] ?? null;
+        if ($choice) {
+            $msg = $choice['message'] ?? [];
+            $reply = $msg['content'] ?? '';
+            // Some providers put string, others null when tool_calls present
+            if ($reply === null) $reply = '';
+            foreach (($msg['tool_calls'] ?? []) as $tc) {
+                $fn = $tc['function'] ?? [];
+                $toolCalls[] = ['id'=>$tc['id'] ?? uniqid('call_'), 'name'=>$fn['name'] ?? '', 'arguments'=> json_decode($fn['arguments'] ?? '{}', true) ?: []];
+            }
+            // Also support legacy function_call
+            if (isset($msg['function_call'])) {
+                $fc = $msg['function_call'];
+                $toolCalls[] = ['id'=>uniqid('call_'), 'name'=>$fc['name'] ?? '', 'arguments'=> json_decode($fc['arguments'] ?? '{}', true) ?: []];
+            }
+        }
+    } elseif ($provider === 'anthropic') {
+        $blocks = $decoded['content'] ?? [];
+        foreach ($blocks as $b) {
+            if (($b['type'] ?? '') === 'text') $reply .= $b['text'];
+            if (($b['type'] ?? '') === 'tool_use') {
+                $toolCalls[] = ['id'=>$b['id'] ?? uniqid('call_'), 'name'=>$b['name'] ?? '', 'arguments'=> $b['input'] ?? []];
+            }
+        }
+        // Some SDKs return stop_reason tool_use but still include text
+        if ($reply === '' && empty($toolCalls) && isset($decoded['content'])) {
+            $reply = json_encode($decoded['content']);
+        }
+    } elseif ($provider === 'google') {
+        $cand = $decoded['candidates'][0] ?? null;
+        $parts = $cand['content']['parts'] ?? [];
+        foreach ($parts as $p) {
+            if (isset($p['text'])) $reply .= $p['text'];
+            if (isset($p['functionCall'])) {
+                $fc = $p['functionCall'];
+                $toolCalls[] = ['id'=>uniqid('call_'), 'name'=>$fc['name'] ?? '', 'arguments'=> $fc['args'] ?? []];
+            }
+        }
+    } elseif ($provider === 'ollama') {
+        $msg = $decoded['message'] ?? [];
+        $reply = $msg['content'] ?? $decoded['response'] ?? '';
+        foreach (($msg['tool_calls'] ?? $decoded['tool_calls'] ?? []) as $tc) {
+            $fn = $tc['function'] ?? $tc;
+            $toolCalls[] = ['id'=>uniqid('call_'), 'name'=>$fn['name'] ?? '', 'arguments'=> is_string($fn['arguments'] ?? null) ? (json_decode($fn['arguments'], true) ?: []) : ($fn['arguments'] ?? [])];
+        }
+        // Ollama sometimes returns content with JSON tool block — try to parse
+        if (empty($toolCalls) && is_string($reply) && preg_match('/\{.*"name"\s*:\s*"(get_|update_|list_|create_|delete_|restart_)/', $reply)) {
+            // Attempt to extract JSON tool calls embedded in text (fallback)
+            // Keep as text reply; no auto-extract to avoid false positives
+        }
+    }
+
+    // Ensure reply is string
+    if (!is_string($reply)) $reply = json_encode($reply);
+
+    return ['success'=>true,'reply'=>$reply,'tool_calls'=>$toolCalls,'raw'=>$decoded,'model'=>$model,'provider'=>$provider];
+}
+
+function aimBuildSystemPrompt($settings) {
+    $custom = trim($settings['system_prompt'] ?? '');
+    if ($custom !== '') return $custom;
+    $toolsSnippet = implode(', ', array_column(aimGetTools(), 'name'));
+    $contextNote = !empty($settings['include_fpp_context']) ? " You will receive live FPP context (status, settings, playlists) in the first user message — use it." : "";
+    return "You are FPP AI Mode, an assistant that helps configure Falcon Player (FPP) via its local API.$contextNote\n"
+        . "You have these tools: $toolsSnippet.\n"
+        . "Rules:\n"
+        . "- Always READ before WRITE: call get_* / list_* to inspect current state before proposing create/update/delete.\n"
+        . "- Explain each change briefly in your reply before calling tools.\n"
+        . "- Use valid JSON for tool arguments. Times are HH:MM:SS, days like MTWThFSaSu or 127, booleans as true/false.\n"
+        . "- Never invent playlist/media names not shown in context; ask the user if unsure.\n"
+        . "- Prefer minimal, reversible edits. Offer to restart FPPD only if needed.\n"
+        . "- If the user request is ambiguous, ask a clarifying question instead of guessing.\n"
+        . "- Keep replies concise and actionable.";
+}
+
+/* ── Endpoints ── */
+
+function getEndpointsfppAImode() {
+    $r = [];
+    $r[] = ['method'=>'GET', 'endpoint'=>'status', 'callback'=>'aimStatusEndpoint'];
+    $r[] = ['method'=>'GET', 'endpoint'=>'diagnostics', 'callback'=>'aimDiagnosticsEndpoint'];
+    $r[] = ['method'=>'GET', 'endpoint'=>'tools', 'callback'=>'aimToolsEndpoint'];
+    $r[] = ['method'=>'POST', 'endpoint'=>'save', 'callback'=>'aimSaveEndpoint'];
+    $r[] = ['method'=>'POST', 'endpoint'=>'test', 'callback'=>'aimTestEndpoint'];
+    $r[] = ['method'=>'POST', 'endpoint'=>'chat', 'callback'=>'aimChatEndpoint'];
+    $r[] = ['method'=>'GET', 'endpoint'=>'history', 'callback'=>'aimHistoryEndpoint'];
+    $r[] = ['method'=>'POST', 'endpoint'=>'history/clear', 'callback'=>'aimHistoryClearEndpoint'];
+    $r[] = ['method'=>'POST', 'endpoint'=>'execute', 'callback'=>'aimExecuteEndpoint'];
+    $r[] = ['method'=>'GET', 'endpoint'=>'logs', 'callback'=>'aimLogsEndpoint'];
+    $r[] = ['method'=>'GET', 'endpoint'=>'icon', 'callback'=>'aimIconEndpoint'];
+    $r[] = ['method'=>'GET', 'endpoint'=>'check-updates', 'callback'=>'aimCheckUpdatesEndpoint'];
+    $r[] = ['method'=>'POST', 'endpoint'=>'update', 'callback'=>'aimUpdateEndpoint'];
+    $r[] = ['method'=>'POST', 'endpoint'=>'reinstall', 'callback'=>'aimReinstallEndpoint'];
+    $r[] = ['method'=>'POST', 'endpoint'=>'uninstall', 'callback'=>'aimUninstallEndpoint'];
+    $r[] = ['method'=>'POST', 'endpoint'=>'restart-fppd', 'callback'=>'aimRestartFPPDEndpoint'];
+    return $r;
+}
+if (!function_exists('getEndpointsfppaImode')) {
+    eval('function getEndpointsfppaImode(){ return getEndpointsfppAImode(); }');
+}
+if (!function_exists('getEndpointsfppaimode')) {
+    eval('function getEndpointsfppaimode(){ return getEndpointsfppAImode(); }');
+}
+
+function aimIconEndpoint() {
+    $iconFile = AIM_PLUGIN_DIR . '/icon.png';
+    if (!file_exists($iconFile)) {
+        header('HTTP/1.0 404 Not Found');
+        return json(['error'=>'Icon not found']);
+    }
+    $mtime = filemtime($iconFile);
+    $etag = '"' . md5_file($iconFile) . '"';
+    header('Content-Type: image/png');
+    header('Content-Length: ' . filesize($iconFile));
+    header('Cache-Control: no-cache, must-revalidate');
+    header('ETag: ' . $etag);
+    header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
+    if (isset($_SERVER['HTTP_IF_NONE_MATCH']) && trim($_SERVER['HTTP_IF_NONE_MATCH']) === $etag) { header('HTTP/1.1 304 Not Modified'); exit; }
+    if (isset($_SERVER['HTTP_IF_MODIFIED_SINCE'])) {
+        $ims = strtotime($_SERVER['HTTP_IF_MODIFIED_SINCE']);
+        if ($ims !== false && $ims >= $mtime) { header('HTTP/1.1 304 Not Modified'); exit; }
+    }
+    readfile($iconFile);
+    exit;
+}
+
+function aimStatusEndpoint() {
+    $settings = aimLoadSettings();
+    // Redact key in response
+    $safe = $settings;
+    $safe['api_key'] = $safe['api_key'] ? '***' . substr($safe['api_key'], -4) : '';
+    $providers = aimGetProviders();
+    $base = aimEffectiveBaseUrl($settings);
+    $fppStatus = aimFppGet('/api/fppd/status', 2);
+    $history = aimLoadHistory();
+    return json([
+        'success'=>true,
+        'settings'=>$safe,
+        'raw_settings_keys'=> array_keys($settings),
+        'provider_meta'=> $providers[$settings['provider']] ?? null,
+        'effective_base_url'=> $base,
+        'fpp_status'=> $fppStatus,
+        'fpp_reachable'=> $fppStatus !== null,
+        'history_count'=> count($history),
+        'tools'=> array_column(aimGetTools(), 'name'),
+    ]);
+}
+
+function aimDiagnosticsEndpoint() {
+    $settings = aimLoadSettings();
+    $provider = $settings['provider'] ?? 'openai';
+    $providers = aimGetProviders();
+    $base = aimEffectiveBaseUrl($settings);
+    $checks = [];
+
+    // 1. Settings presence
+    $checks[] = ['check'=>'Provider selected','ok'=> aimProviderExists($provider), 'detail'=> $provider];
+    $needsKey = $providers[$provider]['needsKey'] ?? true;
+    $checks[] = ['check'=>'API key configured','ok'=> !$needsKey || !empty($settings['api_key']), 'detail'=> $needsKey ? (!empty($settings['api_key']) ? 'present' : 'missing') : 'not required (Ollama)'];
+    $checks[] = ['check'=>'Model selected','ok'=> !empty($settings['model']), 'detail'=> $settings['model'] ?? ''];
+    $checks[] = ['check'=>'Base URL','ok'=> !empty($base), 'detail'=> $base];
+    $checks[] = ['check'=>'PHP curl','ok'=> function_exists('curl_init'), 'detail'=> function_exists('curl_init') ? 'available' : 'missing'];
+    $checks[] = ['check'=>'FPP reachable','ok'=> aimFppGet('/api/fppd/status', 2) !== null, 'detail'=> aimFppGet('/api/fppd/status', 2) ? 'ok' : 'unreachable'];
+
+    // 2. Ollama local check if selected
+    if ($provider === 'ollama') {
+        $ollamaUp = false; $detail = 'not reachable';
+        $ch = curl_init(rtrim($base,'/') . '/api/tags');
+        if ($ch) {
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+            $resp = @curl_exec($ch);
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($code === 200 && $resp) { $ollamaUp = true; $detail = 'reachable'; }
+            else $detail = 'HTTP ' . $code;
+        }
+        $checks[] = ['check'=>'Ollama reachable','ok'=>$ollamaUp,'detail'=> rtrim($base,'/') . '/api/tags: ' . $detail];
+    }
+
+    $allOk = true;
+    foreach ($checks as $c) if (!$c['ok']) $allOk = false;
+    return json(['success'=>$allOk, 'results'=>$checks, 'settings'=>['provider'=>$provider,'model'=>$settings['model'],'base_url'=>$base]]);
+}
+
+function aimToolsEndpoint() {
+    return json(['success'=>true,'tools'=> aimGetTools()]);
+}
+
+function aimSaveEndpoint() {
+    $body = $_POST;
+    // Support JSON body (fetch with contentType json may land in php://input; FPP's json() helper populates $_POST via json decode in some versions, but be safe)
+    $raw = file_get_contents('php://input');
+    if (!empty($raw)) {
+        $j = json_decode($raw, true);
+        if (is_array($j)) $body = array_merge($body, $j);
+    }
+    // Allow partial updates: merge with existing
+    $existing = aimLoadSettings();
+    $merged = array_merge($existing, $body);
+    // Coerce types from strings
+    if (isset($body['temperature'])) $merged['temperature'] = (float)$body['temperature'];
+    if (isset($body['max_tokens'])) $merged['max_tokens'] = (int)$body['max_tokens'];
+    foreach (['auto_approve','dry_run','include_fpp_context','history_enabled'] as $k) {
+        if (isset($body[$k])) $merged[$k] = !empty($body[$k]) ? 1 : 0;
+    }
+    if (!aimSaveSettings($merged)) {
+        aimLog('Save failed');
+        return json(['success'=>false,'error'=>'Could not write settings.json — check permissions on config/']);
+    }
+    aimLog('Settings saved provider=' . ($merged['provider'] ?? '') . ' model=' . ($merged['model'] ?? ''));
+    $safe = $merged; $safe['api_key'] = $safe['api_key'] ? '***' . substr($safe['api_key'], -4) : '';
+    return json(['success'=>true,'message'=>'Settings saved','settings'=>$safe]);
+}
+
+function aimTestEndpoint() {
+    $body = $_POST;
+    $raw = file_get_contents('php://input');
+    if (!empty($raw)) { $j = json_decode($raw, true); if (is_array($j)) $body = array_merge($body, $j); }
+    // Allow override via body else use saved
+    $settings = aimLoadSettings();
+    foreach (['provider','api_key','model','base_url','temperature','max_tokens'] as $k) {
+        if (isset($body[$k]) && $body[$k] !== '') $settings[$k] = $body[$k];
+    }
+    // Build minimal test message
+    $messages = [['role'=>'user','content'=>'Reply with exactly: OK']];
+    $tools = []; // no tools for test
+    aimLog('Test connection provider=' . ($settings['provider'] ?? '') . ' model=' . ($settings['model'] ?? ''));
+    $res = aimCallProvider($settings, $messages, $tools, 15);
+    if (!$res['success']) {
+        aimLog('Test failed: ' . $res['error']);
+        // Friendly hints
+        $err = $res['error'];
+        if (stripos($err, '401') !== false) $err .= ' — check API key';
+        if (stripos($err, '404') !== false && ($settings['provider'] ?? '') === 'ollama') $err .= ' — is Ollama running? try http://<ollama-ip>:11434';
+        if (stripos($err, 'Could not resolve') !== false) $err .= ' — check base URL and FPP internet';
+        return json(['success'=>false,'error'=>$err]);
+    }
+    aimLog('Test SUCCESS provider=' . $settings['provider'] . ' reply=' . substr($res['reply'] ?? '',0,80));
+    return json(['success'=>true,'message'=>'Connected','reply'=>$res['reply'],'provider'=>$res['provider'],'model'=>$res['model']]);
+}
+
+function aimChatEndpoint() {
+    set_time_limit(60);
+    $raw = file_get_contents('php://input');
+    $body = json_decode($raw ?: '{}', true);
+    if (!is_array($body)) $body = [];
+    // Also merge $_POST
+    $body = array_merge($_POST, $body);
+
+    $prompt = trim((string)($body['prompt'] ?? $body['message'] ?? ''));
+    if ($prompt === '') return json(['success'=>false,'error'=>'Prompt is required']);
+
+    $settings = aimLoadSettings();
+    // Validate
+    if ($settings['provider'] !== 'ollama' && empty($settings['api_key'])) {
+        return json(['success'=>false,'error'=>'API key not configured. Go to Config and add your provider key.']);
+    }
+    if (empty($settings['model'])) return json(['success'=>false,'error'=>'Model not configured']);
+
+    // Build messages with history + system + fpp context
+    $system = aimBuildSystemPrompt($settings);
+    $messages = [['role'=>'system','content'=>$system]];
+
+    // Optionally inject FPP context as second system-adjacent user block to keep model grounded
+    if (!empty($settings['include_fpp_context'])) {
+        $ctx = aimGetFppContext(false);
+        $messages[] = ['role'=>'user','content'=>"FPP LIVE CONTEXT (do not repeat verbatim, use for tool calls):\n" . $ctx];
+        $messages[] = ['role'=>'assistant','content'=>'Understood. I will use get_/list_ tools to verify before making changes and explain each action.'];
+    }
+
+    // Append history (user/assistant only, last 12 turns)
+    $history = aimLoadHistory();
+    $histSlice = array_slice($history, -12);
+    foreach ($histSlice as $h) {
+        if (!isset($h['role']) || !isset($h['content'])) continue;
+        if ($h['role'] === 'system') continue;
+        // Avoid injecting tool_call artifacts as plain history if they were stored as user/assistant; keep simple
+        if (in_array($h['role'], ['user','assistant'])) {
+            $messages[] = ['role'=>$h['role'],'content'=>$h['content']];
+        }
+    }
+    $messages[] = ['role'=>'user','content'=>$prompt];
+
+    $tools = aimGetTools();
+
+    aimLog('Chat prompt provider=' . $settings['provider'] . ' model=' . $settings['model'] . ' len=' . strlen($prompt));
+    aimAppendHistory('user', $prompt);
+
+    $res = aimCallProvider($settings, $messages, $tools, 40);
+    if (!$res['success']) {
+        aimLog('Chat failed: ' . $res['error']);
+        return json(['success'=>false,'error'=>$res['error']]);
+    }
+
+    $reply = $res['reply'] ?? '';
+    $toolCalls = $res['tool_calls'] ?? [];
+
+    aimAppendHistory('assistant', $reply, ['tool_calls'=>$toolCalls, 'provider'=>$res['provider'] ?? '', 'model'=>$res['model'] ?? '']);
+
+    // Optionally auto-execute if enabled and dry_run off
+    $executed = [];
+    $isDryRun = !empty($settings['dry_run']);
+    $autoApprove = !empty($settings['auto_approve']);
+
+    if ($autoApprove && !$isDryRun && !empty($toolCalls)) {
+        foreach ($toolCalls as $tc) {
+            $out = aimExecuteTool($tc['name'] ?? '', $tc['arguments'] ?? []);
+            $executed[] = ['call'=>$tc,'result'=>$out];
+            aimLog('Auto-executed tool ' . ($tc['name'] ?? '') . ' success=' . (!empty($out['success']) ? '1' : '0'));
+        }
+    }
+
+    aimLog('Chat reply len=' . strlen($reply) . ' tools=' . count($toolCalls));
+
+    return json([
+        'success'=>true,
+        'reply'=>$reply,
+        'tool_calls'=>$toolCalls,
+        'executed'=>$executed,
+        'dry_run'=>$isDryRun,
+        'auto_approve'=>$autoApprove,
+        'provider'=>$res['provider'] ?? $settings['provider'],
+        'model'=>$res['model'] ?? $settings['model'],
+    ]);
+}
+
+function aimHistoryEndpoint() {
+    $h = aimLoadHistory();
+    return json(['success'=>true,'entries'=>$h]);
+}
+
+function aimHistoryClearEndpoint() {
+    aimClearHistory();
+    aimLog('History cleared');
+    return json(['success'=>true,'message'=>'History cleared']);
+}
+
+function aimExecuteEndpoint() {
+    $raw = file_get_contents('php://input');
+    $body = json_decode($raw ?: '{}', true);
+    if (!is_array($body)) $body = [];
+    $body = array_merge($_POST, $body);
+
+    $name = trim((string)($body['name'] ?? $body['tool'] ?? ''));
+    $args = $body['arguments'] ?? $body['args'] ?? [];
+    if (is_string($args)) { $args = json_decode($args, true) ?: []; }
+
+    if ($name === '') return json(['success'=>false,'error'=>'Tool name required']);
+    // Validate tool exists
+    $known = array_column(aimGetTools(), 'name');
+    if (!in_array($name, $known, true)) return json(['success'=>false,'error'=>'Unknown tool: ' . $name]);
+
+    $settings = aimLoadSettings();
+    if (!empty($settings['dry_run'])) {
+        aimLog('Dry-run execute tool ' . $name);
+        return json(['success'=>true,'dry_run'=>true,'message'=>'Dry-run: not executed','tool'=>$name,'arguments'=>$args]);
+    }
+
+    aimLog('Execute tool ' . $name . ' args=' . json_encode($args));
+    $out = aimExecuteTool($name, $args);
+    if (!empty($out['success'])) aimLog('Tool ' . $name . ' success');
+    else aimLog('Tool ' . $name . ' failed: ' . ($out['error'] ?? 'unknown'));
+    return json(array_merge(['tool'=>$name,'arguments'=>$args], $out));
+}
+
+function aimLogsEndpoint() {
+    $logFile = aimGetLogFile();
+    if (!file_exists($logFile)) return json(['success'=>true,'entries'=>[]]);
+    $lines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if ($lines === false) return json(['success'=>false,'error'=>'Could not read log file']);
+    $lines = array_slice($lines, -100);
+    $entries = [];
+    foreach ($lines as $line) {
+        if (preg_match('/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) fpp-AImode (\S+): (.*)$/', $line, $m)) {
+            $level = 'INFO';
+            if (preg_match('/^(SUCCESS|ERROR|WARNING)/', $m[3], $lm)) $level = $lm[1];
+            elseif (stripos($m[3], 'failed') !== false || stripos($m[3], 'error') !== false) $level = 'ERROR';
+            $entries[] = ['timestamp'=>$m[1],'source'=>$m[2],'level'=>$level,'message'=>$m[3]];
+        } else {
+            $entries[] = ['timestamp'=>'','source'=>'','level'=>'INFO','message'=>$line];
+        }
+    }
+    return json(['success'=>true,'entries'=> array_reverse($entries)]);
+}
+
+function aimCheckUpdatesEndpoint() {
+    $pluginDir = AIM_PLUGIN_DIR;
+    $localSha=''; $remoteSha='';
+    if (is_dir($pluginDir . '/.git')) {
+        $localSha = trim(@shell_exec('git -C ' . escapeshellarg($pluginDir) . ' rev-parse HEAD 2>/dev/null') ?? '');
+        $remoteRef = trim(@shell_exec('git -C ' . escapeshellarg($pluginDir) . ' ls-remote origin main 2>/dev/null') ?? '');
+        if ($remoteRef !== '') { $parts = preg_split('/\s+/', $remoteRef); $remoteSha = $parts[0] ?? ''; }
+    }
+    $updateAvailable = !empty($localSha) && !empty($remoteSha) && $localSha !== $remoteSha;
+    return json(['updateAvailable'=>$updateAvailable,'localSha'=> $localSha ? substr($localSha,0,7) : 'unknown','remoteSha'=> $remoteSha ? substr($remoteSha,0,7) : 'unknown']);
+}
+
+function aimDoGitUpdate($preserveConfig = true) {
+    $pluginDir = AIM_PLUGIN_DIR;
+    $backupDir = sys_get_temp_dir() . '/fpp-aimode-backup';
+    @mkdir($backupDir, 0777, true);
+    // Preserve plugindata (new) and legacy config for migration (§14.11 credentials in plugindata)
+    $plugindataSettings = aimGetSettingsFile();
+    $plugindataHistory = aimGetHistoryFile();
+    $legacySettings = aimGetLegacySettingsFile();
+    $legacyHistory = aimGetLegacyHistoryFile();
+    $preserveFiles = [];
+    if ($preserveConfig) {
+        foreach ([$plugindataSettings, $plugindataHistory, $legacySettings, $legacyHistory] as $f) {
+            if (file_exists($f)) {
+                @copy($f, $backupDir . '/' . str_replace('/', '_', ltrim(str_replace($plugindataSettings, 'plugindata_settings.json', $f), '/')));
+                $preserveFiles[] = $f;
+            }
+        }
+    }
+    if (is_dir($pluginDir . '/.git')) {
+        exec('git -C ' . escapeshellarg($pluginDir) . ' fetch origin 2>&1');
+        exec('git -C ' . escapeshellarg($pluginDir) . ' checkout -- . 2>&1');
+        exec('git -C ' . escapeshellarg($pluginDir) . ' clean -fd 2>&1');
+        exec('git -C ' . escapeshellarg($pluginDir) . ' reset --hard origin/main 2>&1');
+    }
+    if ($preserveConfig) {
+        // Restore plugindata files (preferred) — legacy files are kept only if plugindata didn't exist
+        foreach ([$plugindataSettings, $plugindataHistory] as $f) {
+            $bak = $backupDir . '/plugindata_' . basename($f);
+            // fallback key naming above used underscore; check both
+            $bakAlt = $backupDir . '/' . str_replace('/', '_', $f);
+            $found = file_exists($bak) ? $bak : (file_exists($bakAlt) ? $bakAlt : null);
+            if ($found) {
+                @mkdir(dirname($f), 0775, true);
+                @copy($found, $f);
+                @chmod($f, 0600);
+            }
+        }
+        // Also restore legacy if plugindata not yet migrated
+        foreach ([$legacySettings, $legacyHistory] as $f) {
+            $bak = $backupDir . '/' . str_replace('/', '_', $f);
+            if (file_exists($bak) && !file_exists(aimGetSettingsFile()) && basename($f)==='settings.json') {
+                @mkdir(dirname($f), 0775, true);
+                @copy($bak, $f);
+            } elseif (file_exists($bak) && !file_exists(aimGetHistoryFile()) && basename($f)==='history.json') {
+                @mkdir(dirname($f), 0775, true);
+                @copy($bak, $f);
+            }
+        }
+        exec('rm -rf ' . escapeshellarg($backupDir));
+    }
+    // Ensure plugindata perms
+    $plugDataDir = aimGetDataDir();
+    if (is_dir($plugDataDir)) {
+        @chmod($plugDataDir, 0775);
+        foreach (glob($plugDataDir . '/*') as $f) @chmod($f, 0600);
+    }
+    $infoFile = $pluginDir . '/pluginInfo.json';
+    if (file_exists($infoFile)) {
+        $info = json_decode(file_get_contents($infoFile), true);
+        if ($info && isset($info['versions'])) {
+            $sha = trim(@shell_exec('git -C ' . escapeshellarg($pluginDir) . ' rev-parse HEAD 2>/dev/null') ?? '');
+            if ($sha !== '') {
+                foreach ($info['versions'] as &$v) $v['sha'] = $sha;
+                file_put_contents($infoFile, json_encode($info, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+            }
+        }
+    }
+    $opts = ['http'=>['method'=>'PUT','header'=>'Content-Type: application/json','content'=>'1']];
+    @file_get_contents('http://localhost/api/settings/restartFlag', false, stream_context_create($opts));
+}
+
+function aimUpdateEndpoint() {
+    aimDoGitUpdate(true);
+    aimLog('Plugin updated via developer tab');
+    return json(['success'=>true,'message'=>'Plugin updated']);
+}
+function aimReinstallEndpoint() {
+    aimDoGitUpdate(true);
+    aimLog('Plugin reinstalled via developer tab');
+    return json(['success'=>true,'message'=>'Plugin reinstalled']);
+}
+function aimUninstallEndpoint() {
+    $pluginDir = AIM_PLUGIN_DIR;
+    $it = new RecursiveDirectoryIterator($pluginDir, RecursiveDirectoryIterator::SKIP_DOTS);
+    $files = new RecursiveIteratorIterator($it, RecursiveIteratorIterator::CHILD_FIRST);
+    foreach ($files as $file) {
+        if ($file->isDir()) @rmdir($file->getRealPath());
+        else @unlink($file->getRealPath());
+    }
+    @rmdir($pluginDir);
+    $opts = ['http'=>['method'=>'PUT','header'=>'Content-Type: application/json','content'=>'1']];
+    @file_get_contents('http://localhost/api/settings/restartFlag', false, stream_context_create($opts));
+    aimLog('Plugin uninstalled via developer tab');
+    return json(['success'=>true,'message'=>'Plugin removed; FPPD restart flagged']);
+}
+function aimRestartFPPDEndpoint() {
+    $opts = ['http'=>['method'=>'PUT','header'=>'Content-Type: application/json','content'=>'1']];
+    $res = @file_get_contents('http://localhost/api/settings/restartFlag', false, stream_context_create($opts));
+    if ($res === false) return json(['success'=>false,'error'=>'Could not set restart flag']);
+    return json(['success'=>true,'message'=>'FPPD restart flag set']);
+}
+?>

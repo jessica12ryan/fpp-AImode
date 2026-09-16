@@ -1,0 +1,5 @@
+.DS_Store
+*.log
+/config/settings.json
+/config/history.json
+/tmp_*.js
