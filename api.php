@@ -1093,6 +1093,9 @@ function getEndpointsfppAImode() {
     $r[] = ['method'=>'GET', 'endpoint'=>'conversations/:id', 'callback'=>'aimConversationGetEndpoint'];
     $r[] = ['method'=>'DELETE', 'endpoint'=>'conversations/:id', 'callback'=>'aimConversationDeleteEndpoint'];
     $r[] = ['method'=>'PUT', 'endpoint'=>'conversations/:id', 'callback'=>'aimConversationUpdateEndpoint'];
+    $r[] = ['method'=>'POST', 'endpoint'=>'conversations/:id/delete', 'callback'=>'aimConversationDeleteEndpoint'];
+    $r[] = ['method'=>'POST', 'endpoint'=>'conversations/:id/update', 'callback'=>'aimConversationUpdateEndpoint'];
+    $r[] = ['method'=>'POST', 'endpoint'=>'conversations/:id', 'callback'=>'aimConversationUpdateEndpoint'];
     $r[] = ['method'=>'GET', 'endpoint'=>'history', 'callback'=>'aimHistoryEndpoint'];
     $r[] = ['method'=>'POST', 'endpoint'=>'history/clear', 'callback'=>'aimHistoryClearEndpoint'];
     $r[] = ['method'=>'POST', 'endpoint'=>'execute', 'callback'=>'aimExecuteEndpoint'];

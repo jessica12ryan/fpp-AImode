@@ -376,9 +376,21 @@ var aimConv = {
             type:'GET',
             dataType:'json',
             success: function(r){
-                if(!r.success || !r.conversations) return;
-                aimConv.list = r.conversations;
+                if(!r.success) {
+                    $('#aimMessages').html('<div class="aim-msg aim-msg-system">Could not load conversations: '+aimChat.esc(r.error||'Unknown')+'</div>');
+                    return;
+                }
+                aimConv.list = r.conversations || [];
                 var sel = $('#aimConvSelect').empty();
+                if(aimConv.list.length===0){
+                    sel.append($('<option>',{value:'',text:'— No conversations —'}));
+                    $('#aimMessages').html('<div class="aim-msg aim-msg-system">No conversations yet. Click <b>+ New</b> or send a prompt below to start one (a new conversation will be created automatically).</div>');
+                    aimConv.currentId = null;
+                    aimChat.currentConvId = null;
+                    localStorage.removeItem('fppAImode_activeConv');
+                    aimConv.updateStatusBar();
+                    return;
+                }
                 r.conversations.forEach(function(c){
                     var label = c.title + (c.status==='thinking' ? ' ● thinking' : '') + ' ('+c.messageCount+')';
                     sel.append($('<option>',{value:c.id,text:label}));
@@ -397,6 +409,11 @@ var aimConv = {
                     aimConv.load(r.conversations[0].id);
                 }
                 aimConv.updateStatusBar();
+            },
+            error: function(xhr){
+                var msg='Could not load conversations';
+                try{ var j=JSON.parse(xhr.responseText); if(j.error) msg=j.error; }catch(e){}
+                $('#aimMessages').html('<div class="aim-msg aim-msg-system">Error: '+aimChat.esc(msg)+'<br>Try <b>+ New</b> to create a conversation.</div>');
             }
         });
     },
@@ -472,28 +489,31 @@ var aimConv = {
         if(!id) return;
         if(!confirm('Delete conversation "'+($('#aimConvSelect option:selected').text())+'"?')) return;
         $.ajax({
-            url:'api/plugin/fpp-AImode/conversations/'+encodeURIComponent(id),
-            type:'DELETE',
+            url:'api/plugin/fpp-AImode/conversations/'+encodeURIComponent(id)+'/delete',
+            type:'POST',
             dataType:'json',
             success: function(){
                 localStorage.removeItem('fppAImode_activeConv');
                 aimConv.refreshList();
-            }
+                $.jGrowl('Conversation deleted',{themeState:'success'});
+            },
+            error: function(xhr){ var m='Could not delete'; try{var j=JSON.parse(xhr.responseText); if(j.error) m=j.error;}catch(e){} $.jGrowl(m,{themeState:'error'}); }
         });
     },
     rename: function(){
         var id = aimConv.currentId;
         if(!id) return;
-        var curTitle = $('#aimConvSelect option:selected').text().split(' (')[0];
+        var curTitle = $('#aimConvSelect option:selected').text().split(' (')[0].replace(' ● thinking','').trim();
         var title = prompt('Rename conversation:', curTitle);
         if(!title || title===curTitle) return;
         $.ajax({
-            url:'api/plugin/fpp-AImode/conversations/'+encodeURIComponent(id),
-            type:'PUT',
+            url:'api/plugin/fpp-AImode/conversations/'+encodeURIComponent(id)+'/update',
+            type:'POST',
             contentType:'application/json',
             data: JSON.stringify({title: title}),
             dataType:'json',
-            success: function(){ aimConv.refreshList(); }
+            success: function(){ aimConv.refreshList(); },
+            error: function(xhr){ var m='Could not rename'; try{var j=JSON.parse(xhr.responseText); if(j.error) m=j.error;}catch(e){} $.jGrowl(m,{themeState:'error'}); }
         });
     },
     setLocalStatus: function(id, status){
