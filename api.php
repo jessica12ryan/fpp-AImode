@@ -729,7 +729,7 @@ function aimExecuteTool($name, $args) {
             return $data !== null ? ['success'=>true,'result'=>$data] : ['success'=>false,'error'=>'Playlist not found'];
         case 'create_playlist':
             if (empty($args['name'])) return ['success'=>false,'error'=>'name required'];
-            if (empty($args['entries']) || !is_array($args['entries'])) return ['success'=>false,'error'=>'entries array required'];
+            if (!isset($args['entries']) || !is_array($args['entries'])) return ['success'=>false,'error'=>'entries array required']; // empty array allowed for empty playlist
             $body = ['name'=>$args['name'],'entries'=>$args['entries']];
             if (isset($args['shuffle'])) $body['shuffle'] = (bool)$args['shuffle'];
             // FPP playlist creation: POST /api/playlist/<name> or PUT; try POST
@@ -1472,12 +1472,24 @@ function aimConversationsCreateEndpoint() {
     $conv = aimCreateConversation($title);
     return json(['success'=>true,'conversation'=>$conv]);
 }
+function aimGetRouteId($key='id') {
+    if (function_exists('param')) {
+        $v = @param($key, null);
+        if ($v) return $v;
+    }
+    if (isset($_GET[$key]) && $_GET[$key] !== '') return $_GET[$key];
+    if (isset($_POST[$key]) && $_POST[$key] !== '') return $_POST[$key];
+    // Fallback: parse from REQUEST_URI like /api/plugin/fpp-AImode/conversations/conv_xxx or /conversations/conv_xxx/delete
+    $uri = $_SERVER['REQUEST_URI'] ?? '';
+    if ($uri && preg_match('#/conversations/([a-zA-Z0-9_\-]+)#', $uri, $m)) return $m[1];
+    return null;
+}
 function aimConversationGetEndpoint() {
-    $id = param('id', null);
+    $id = aimGetRouteId('id');
     if (!$id) {
         $raw = file_get_contents('php://input');
         $b = json_decode($raw ?: '{}', true);
-        $id = $b['id'] ?? $_GET['id'] ?? null;
+        $id = $b['id'] ?? null;
     }
     if (!$id) return json(['success'=>false,'error'=>'Conversation id required']);
     $conv = aimGetConversation($id);
@@ -1485,18 +1497,18 @@ function aimConversationGetEndpoint() {
     return json(['success'=>true,'conversation'=>$conv]);
 }
 function aimConversationDeleteEndpoint() {
-    $id = param('id', null);
+    $id = aimGetRouteId('id');
     if (!$id) {
         $raw = file_get_contents('php://input');
         $b = json_decode($raw ?: '{}', true);
-        $id = $b['id'] ?? $_POST['id'] ?? null;
+        $id = $b['id'] ?? null;
     }
     if (!$id) return json(['success'=>false,'error'=>'Conversation id required']);
     aimDeleteConversation($id);
     return json(['success'=>true,'message'=>'Conversation deleted']);
 }
 function aimConversationUpdateEndpoint() {
-    $id = param('id', null);
+    $id = aimGetRouteId('id');
     $raw = file_get_contents('php://input');
     $body = json_decode($raw ?: '{}', true);
     if (!is_array($body)) $body = [];
