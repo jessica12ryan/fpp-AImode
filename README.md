@@ -57,16 +57,16 @@ sudo chown -R fpp:fpp fpp-AImode
 
 ### Provider Notes
 
-| Provider | Key prefix | Default Base URL | Example Models |
+| Provider | Key prefix | Default Base URL | Example Models (default • latest) |
 |---|---|---|---|
-| **OpenAI** | `sk-…` | `https://api.openai.com/v1` | `gpt-4o`, `gpt-4o-mini`, `o1-mini` |
-| **Anthropic** | `sk-ant-…` | `https://api.anthropic.com` | `claude-3-5-sonnet-20241022`, `claude-3-haiku` |
-| **Google** | `AIza…` | `https://generativelanguage.googleapis.com` | `gemini-1.5-flash`, `gemini-1.5-pro`, `gemini-2.0-flash` |
-| **Mistral** | … | `https://api.mistral.ai/v1` | `mistral-large-latest`, `mistral-small` |
-| **Grok (xAI)** | `xai-…` | `https://api.x.ai/v1` | `grok-2`, `grok-beta` |
-| **OpenRouter** | `sk-or-…` | `https://openrouter.ai/api/v1` | `openai/gpt-4o`, `anthropic/claude-3.5-sonnet` |
-| **Ollama** | *(none)* | `http://localhost:11434` | `llama3.1`, `qwen2.5`, `mistral` |
-| **Azure OpenAI** | Azure key | `https://{endpoint}.openai.azure.com` | your deployment name = model field |
+| **OpenAI** | `sk-…` | `https://api.openai.com/v1` | `gpt-4o-mini` (default) • `gpt-4o`, `gpt-5`, `gpt-5.6-sol`, `o3`, `o1-mini` |
+| **Anthropic** | `sk-ant-…` | `https://api.anthropic.com` | `claude-3-5-sonnet-20241022` (default) • `claude-sonnet-4-6`, `claude-opus-4-8`, `claude-opus-5` |
+| **Google** | `AIza…` | `https://generativelanguage.googleapis.com` | `gemini-3.6-flash` (default) • `gemini-3.8-flash`, `gemini-2.5-flash`, `gemini-2.5-pro` (2.0/1.5 deprecated — auto-migrates) |
+| **Mistral** | … | `https://api.mistral.ai/v1` | `mistral-large-latest` (default) • `codestral-latest`, `mistral-small-latest` |
+| **Grok (xAI)** | `xai-…` | `https://api.x.ai/v1` | `grok-3` (default) • `grok-3-mini`, `grok-2`, `grok-beta` |
+| **OpenRouter** | `sk-or-…` | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` (default) • `openai/gpt-5`, `google/gemini-3.6-flash`, `anthropic/claude-opus-4`, `x-ai/grok-3` |
+| **Ollama** | *(none)* | `http://localhost:11434` | `llama3.1` (default) • `llama3.3`, `qwen2.5`, `qwen3`, `gemma3`, `phi4`, `deepseek-r1` |
+| **Azure OpenAI** | Azure key | `https://{endpoint}.openai.azure.com` | your deployment name = model field (`gpt-4o`, `gpt-5`, `o3`) |
 
 > **Security:** Keys are stored in `/home/fpp/media/plugindata/fpp-AImode/settings.json` with `0600` (plugindata, not config, so crash bundles and backups never carry them in clear). Keys are never logged. Use FPP’s UI password if FPP is exposed.
 

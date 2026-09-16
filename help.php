@@ -81,16 +81,16 @@ $showDevTab = $uiLevel >= 3;
             <h3>Provider Setup Details</h3>
             <div class="table-responsive">
             <table class="fppTable" style="width:auto;">
-                <thead><tr><th>Provider</th><th>Key &amp; Base URL</th><th>Models</th></tr></thead>
+                <thead><tr><th>Provider</th><th>Key &amp; Base URL</th><th>Models (default • latest)</th></tr></thead>
                 <tbody>
-                    <tr><td>OpenAI</td><td>Key <code>sk-…</code>, default <code>api.openai.com/v1</code></td><td>gpt-4o, gpt-4o-mini, o1-mini</td></tr>
-                    <tr><td>Anthropic</td><td>Key <code>sk-ant-…</code>, default <code>api.anthropic.com</code></td><td>claude-3-5-sonnet, claude-3-haiku</td></tr>
-                    <tr><td>Google</td><td>Key <code>AIza…</code>, default <code>generativelanguage.googleapis.com</code></td><td>gemini-1.5-flash, gemini-1.5-pro</td></tr>
-                    <tr><td>Mistral</td><td><code>api.mistral.ai/v1</code></td><td>mistral-large-latest</td></tr>
-                    <tr><td>Grok (xAI)</td><td>Key <code>xai-…</code>, <code>api.x.ai/v1</code></td><td>grok-2</td></tr>
-                    <tr><td>OpenRouter</td><td>Key <code>sk-or-…</code>, <code>openrouter.ai/api/v1</code></td><td>openai/gpt-4o, anthropic/claude…</td></tr>
-                    <tr><td>Ollama</td><td><i>No key</i>, set Base URL to <code>http://&lt;ollama-ip&gt;:11434</code></td><td>llama3.1, qwen2.5, mistral</td></tr>
-                    <tr><td>Azure</td><td>Azure key, Base URL <code>https://{endpoint}.openai.azure.com</code>, Model = deployment name</td><td>your deployments</td></tr>
+                    <tr><td>OpenAI</td><td>Key <code>sk-…</code>, default <code>api.openai.com/v1</code></td><td><code>gpt-4o-mini</code> (default) • <code>gpt-4o</code>, <code>gpt-5</code>, <code>gpt-5.6-sol</code>, <code>o3</code></td></tr>
+                    <tr><td>Anthropic</td><td>Key <code>sk-ant-…</code>, default <code>api.anthropic.com</code></td><td><code>claude-3-5-sonnet-20241022</code> (default) • <code>claude-sonnet-4-6</code>, <code>claude-opus-5</code></td></tr>
+                    <tr><td>Google</td><td>Key <code>AIza…</code>, default <code>generativelanguage.googleapis.com</code></td><td><code>gemini-3.6-flash</code> (default) • <code>gemini-3.8-flash</code>, <code>gemini-2.5-flash</code> (1.5/2.0 deprecated — auto-migrates to 3.6)</td></tr>
+                    <tr><td>Mistral</td><td><code>api.mistral.ai/v1</code></td><td><code>mistral-large-latest</code> (default) • <code>codestral-latest</code></td></tr>
+                    <tr><td>Grok (xAI)</td><td>Key <code>xai-…</code>, <code>api.x.ai/v1</code></td><td><code>grok-3</code> (default) • <code>grok-3-mini</code>, <code>grok-2</code></td></tr>
+                    <tr><td>OpenRouter</td><td>Key <code>sk-or-…</code>, <code>openrouter.ai/api/v1</code></td><td><code>openai/gpt-4o-mini</code> (default) • <code>google/gemini-3.6-flash</code>, <code>anthropic/claude-opus-4</code></td></tr>
+                    <tr><td>Ollama</td><td><i>No key</i>, set Base URL to <code>http://&lt;ollama-ip&gt;:11434</code></td><td><code>llama3.1</code> (default) • <code>llama3.3</code>, <code>qwen3</code>, <code>gemma3</code></td></tr>
+                    <tr><td>Azure</td><td>Azure key, Base URL <code>https://{endpoint}.openai.azure.com</code>, Model = deployment name</td><td><code>gpt-4o</code>, <code>gpt-5</code>, <code>o3</code></td></tr>
                 </tbody>
             </table>
             </div>
