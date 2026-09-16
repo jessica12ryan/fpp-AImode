@@ -1080,41 +1080,102 @@ function aimChatEndpoint() {
     aimLog('Chat prompt provider=' . $settings['provider'] . ' model=' . $settings['model'] . ' len=' . strlen($prompt));
     aimAppendHistory('user', $prompt);
 
-    $res = aimCallProvider($settings, $messages, $tools, 40);
-    if (!$res['success']) {
-        aimLog('Chat failed: ' . $res['error']);
-        return json(['success'=>false,'error'=>$res['error']]);
-    }
-
-    $reply = $res['reply'] ?? '';
-    $toolCalls = $res['tool_calls'] ?? [];
-
-    aimAppendHistory('assistant', $reply, ['tool_calls'=>$toolCalls, 'provider'=>$res['provider'] ?? '', 'model'=>$res['model'] ?? '']);
-
-    // Optionally auto-execute if enabled and dry_run off
-    $executed = [];
     $isDryRun = !empty($settings['dry_run']);
     $autoApprove = !empty($settings['auto_approve']);
+    $allToolCalls = [];
+    $allExecuted = [];
+    $finalReply = '';
+    $finalProvider = $settings['provider'];
+    $finalModel = $settings['model'];
+    $currentMessages = $messages;
+    $maxIterations = 4;
+    $iteration = 0;
 
-    if ($autoApprove && !$isDryRun && !empty($toolCalls)) {
+    while ($iteration < $maxIterations) {
+        $res = aimCallProvider($settings, $currentMessages, $tools, 40);
+        if (!$res['success']) {
+            aimLog('Chat failed iter ' . $iteration . ': ' . $res['error']);
+            if ($iteration === 0) return json(['success'=>false,'error'=>$res['error']]);
+            // On later iteration, return what we have with error appended
+            $finalReply .= "\n\n[Error on follow-up: " . $res['error'] . "]";
+            break;
+        }
+        $reply = $res['reply'] ?? '';
+        $toolCalls = $res['tool_calls'] ?? [];
+        $finalProvider = $res['provider'] ?? $finalProvider;
+        $finalModel = $res['model'] ?? $finalModel;
+        $finalReply = $reply;
+        // Accumulate tool calls for UI
+        $allToolCalls = array_merge($allToolCalls, $toolCalls);
+        aimLog('Chat iter ' . $iteration . ' reply len ' . strlen($reply) . ' tools ' . count($toolCalls));
+
+        // No tools — we are done
+        if (empty($toolCalls)) {
+            break;
+        }
+        // Dry run or manual approval — stop and let UI handle
+        if ($isDryRun || !$autoApprove) {
+            // Append this assistant turn to history and return tool calls for UI approval
+            aimAppendHistory('assistant', $reply, ['tool_calls'=>$toolCalls, 'provider'=>$finalProvider, 'model'=>$finalModel]);
+            return json([
+                'success'=>true,
+                'reply'=>$reply,
+                'tool_calls'=>$toolCalls,
+                'executed'=>[],
+                'dry_run'=>$isDryRun,
+                'auto_approve'=>$autoApprove,
+                'provider'=>$finalProvider,
+                'model'=>$finalModel,
+            ]);
+        }
+        // Auto-execute all tool calls and feed results back for next iteration
+        $executedThisTurn = [];
+        $obsLines = [];
         foreach ($toolCalls as $tc) {
             $out = aimExecuteTool($tc['name'] ?? '', $tc['arguments'] ?? []);
-            $executed[] = ['call'=>$tc,'result'=>$out];
-            aimLog('Auto-executed tool ' . ($tc['name'] ?? '') . ' success=' . (!empty($out['success']) ? '1' : '0'));
+            $executedThisTurn[] = ['call'=>$tc,'result'=>$out];
+            $allExecuted[] = ['call'=>$tc,'result'=>$out];
+            aimLog('Auto-executed tool iter ' . $iteration . ' ' . ($tc['name'] ?? '') . ' success=' . (!empty($out['success']) ? '1' : '0'));
+            $obsLines[] = '- ' . ($tc['name'] ?? 'tool') . '(' . json_encode($tc['arguments'] ?? []) . ') => ' . json_encode($out, JSON_UNESCAPED_SLASHES);
+        }
+        // Build observation for next AI turn — plain user message works for all providers
+        $obs = "Tool execution results (iteration " . ($iteration+1) . "):\n" . implode("\n", $obsLines) . "\n\nOriginal request: \"" . $prompt . "\" — if the playlist still needs creation and does not already exist, call the appropriate tool now (e.g. create_playlist). If done, reply confirming completion with details.";
+        // Append assistant tool call + observation to message history for next loop
+        // Include tool call names in assistant content for providers that don't use strict tool role
+        $assistantContent = $reply;
+        if (!empty($toolCalls)) {
+            $assistantContent .= "\n\n[Called tools: " . implode(', ', array_column($toolCalls, 'name')) . "]";
+        }
+        $currentMessages[] = ['role'=>'assistant','content'=>$assistantContent];
+        $currentMessages[] = ['role'=>'user','content'=>$obs];
+        $iteration++;
+        // Continue loop to let model issue next tool call (e.g. create after list)
+        // Safety: if we just executed create_playlist, the next iteration will likely have no tools and we will exit
+        if ($iteration >= $maxIterations) {
+            aimLog('Chat max iterations reached');
+            break;
+        }
+        // Small guard: avoid looping forever if model keeps returning same tool
+        if ($iteration > 0 && count($toolCalls) > 0 && $toolCalls[0]['name'] === 'list_playlists' && $iteration >= 2) {
+            // If we have listed twice without creating, break to avoid loop
+            break;
         }
     }
 
-    aimLog('Chat reply len=' . strlen($reply) . ' tools=' . count($toolCalls));
+    // Append final assistant reply to history
+    aimAppendHistory('assistant', $finalReply, ['tool_calls'=>$allToolCalls, 'provider'=>$finalProvider, 'model'=>$finalModel]);
+
+    aimLog('Chat final reply len=' . strlen($finalReply) . ' total tools=' . count($allToolCalls) . ' executed=' . count($allExecuted));
 
     return json([
         'success'=>true,
-        'reply'=>$reply,
-        'tool_calls'=>$toolCalls,
-        'executed'=>$executed,
+        'reply'=>$finalReply,
+        'tool_calls'=>$allToolCalls,
+        'executed'=>$allExecuted,
         'dry_run'=>$isDryRun,
         'auto_approve'=>$autoApprove,
-        'provider'=>$res['provider'] ?? $settings['provider'],
-        'model'=>$res['model'] ?? $settings['model'],
+        'provider'=>$finalProvider,
+        'model'=>$finalModel,
     ]);
 }
 
