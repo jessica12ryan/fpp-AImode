@@ -226,11 +226,18 @@ function aimSaveSettings($arr) {
 
     $file = aimGetSettingsFile();
     $dir = dirname($file);
-    if (!is_dir($dir)) @mkdir($dir, 0775, true);
+    if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+        aimLog('Save mkdir failed for ' . $dir);
+        return false;
+    }
     $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     if ($json === false) return false;
     $ok = @file_put_contents($file, $json . "\n", LOCK_EX);
-    if ($ok !== false) @chmod($file, 0600);
+    if ($ok === false) {
+        aimLog('Save file_put_contents failed for ' . $file . ' dir writable=' . (is_writable($dir) ? 'yes' : 'no'));
+        return false;
+    }
+    @chmod($file, 0600);
     // Best-effort: remove legacy file after successful migration to avoid duplicate secrets
     if ($ok !== false) @unlink(aimGetLegacySettingsFile());
     return $ok !== false;
@@ -309,7 +316,7 @@ function aimFppGet($path, $timeout = 2) {
             curl_setopt($ch, CURLOPT_HTTPHEADER, ['Accept: application/json']);
             $tmp = @curl_exec($ch);
             $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
+            if (function_exists("curl_close") && version_compare(PHP_VERSION, "8.0", "<")) @curl_close($ch);
             if ($tmp !== false && $code >= 200 && $code < 300 && $tmp !== '') {
                 $decoded = json_decode($tmp, true);
                 if ($decoded !== null) return $decoded;
@@ -335,7 +342,7 @@ function aimFppRequest($method, $path, $body = null, $timeout = 5) {
         $resp = @curl_exec($ch);
         $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $err = curl_error($ch);
-        curl_close($ch);
+        if (function_exists("curl_close") && version_compare(PHP_VERSION, "8.0", "<")) @curl_close($ch);
         if ($err) return ['success' => false, 'error' => $err, 'code' => 0];
         $decoded = json_decode($resp, true);
         return ['success' => $code >= 200 && $code < 300, 'code' => $code, 'body' => $decoded !== null ? $decoded : $resp];
@@ -541,6 +548,13 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
         return ['success'=>false,'error'=>'API key not configured for ' . $meta['label']];
     }
     if ($model === '') $model = $meta['defaultModel'];
+    // Provider/model sanity check — give friendly error before HTTP 404
+    if ($provider === 'google' && stripos($model, 'gemini') === false && stripos($model, 'gemma') === false && stripos($model, 'learnlm') === false) {
+        return ['success'=>false,'error'=>'Model "' . $model . '" not valid for Google Gemini. Use gemini-1.5-flash, gemini-1.5-pro, gemini-2.0-flash, etc. — current provider is google'];
+    }
+    if ($provider === 'openai' && stripos($model, 'gemini') === 0) {
+        return ['success'=>false,'error'=>'Model "' . $model . '" is a Gemini model, not valid for OpenAI provider. Switch provider to Google or choose a gpt-*/o1* model.'];
+    }
 
     // Build provider-specific request
     $url = '';
@@ -665,12 +679,21 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
     $resp = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $err  = curl_error($ch);
-    curl_close($ch);
+    if (function_exists("curl_close") && version_compare(PHP_VERSION, "8.0", "<")) @curl_close($ch);
 
     if ($err) return ['success'=>false,'error'=>'Curl error: ' . $err];
     if ($code < 200 || $code >= 300) {
         $snippet = substr($resp ?: '', 0, 800);
-        return ['success'=>false,'error'=>"HTTP $code: $snippet"];
+        $hint = '';
+        // Friendly hints for common model mismatches
+        if ($code === 404 && $provider === 'google' && stripos($snippet, 'models/') !== false) {
+            $hint = ' — Model "' . $model . '" not valid for Google Gemini. Use a Gemini model like gemini-1.5-flash, gemini-1.5-pro, or gemini-2.0-flash. List: https://ai.google.dev/gemini-api/docs/models/gemini';
+        } elseif ($code === 404 && stripos($snippet, 'model') !== false) {
+            $hint = ' — Model "' . $model . '" not found for provider ' . $provider . '. Check Config → Model picker for valid models for this provider.';
+        } elseif ($code === 401) {
+            $hint = ' — check API key for ' . $provider;
+        }
+        return ['success'=>false,'error'=>"HTTP $code: $snippet" . $hint];
     }
     $decoded = json_decode($resp, true);
     if ($decoded === null) return ['success'=>false,'error'=>'Invalid JSON from provider'];
@@ -853,7 +876,7 @@ function aimDiagnosticsEndpoint() {
             curl_setopt($ch, CURLOPT_TIMEOUT, 3);
             $resp = @curl_exec($ch);
             $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
+            if (function_exists("curl_close") && version_compare(PHP_VERSION, "8.0", "<")) @curl_close($ch);
             if ($code === 200 && $resp) { $ollamaUp = true; $detail = 'reachable'; }
             else $detail = 'HTTP ' . $code;
         }
@@ -887,8 +910,9 @@ function aimSaveEndpoint() {
         if (isset($body[$k])) $merged[$k] = !empty($body[$k]) ? 1 : 0;
     }
     if (!aimSaveSettings($merged)) {
-        aimLog('Save failed');
-        return json(['success'=>false,'error'=>'Could not write settings.json — check permissions on config/']);
+        $target = aimGetSettingsFile();
+        aimLog('Save failed to ' . $target);
+        return json(['success'=>false,'error'=>'Could not write ' . $target . ' — check permissions on plugindata/fpp-AImode/ (should be 775 dir, 600 file, owned by fpp)']);
     }
     aimLog('Settings saved provider=' . ($merged['provider'] ?? '') . ' model=' . ($merged['model'] ?? ''));
     $safe = $merged; $safe['api_key'] = $safe['api_key'] ? '***' . substr($safe['api_key'], -4) : '';

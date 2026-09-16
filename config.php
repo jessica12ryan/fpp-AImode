@@ -208,16 +208,35 @@ var aimConfig = {
         (meta.models||[]).forEach(function(m){
             sel.append($('<option>',{value:m,text:m}));
         });
-        // Select matching or first
         var cur = $('#aim_model').val();
+        // If current model is not valid for selected provider, warn and auto-correct to provider default
         if (cur && meta.models.indexOf(cur) === -1) {
-            sel.append($('<option>',{value:cur,text:cur + ' (current)'}));
+            // Check if cur looks like a model for another provider (e.g. gpt- for google) — treat as mismatch
+            var isMismatch = true;
+            // Allow custom models that contain provider hint (e.g. openrouter slugs contain /) or are non-standard
+            // For Google, only gemini* is valid; for OpenAI only gpt*/o1* etc.
+            if (prov === 'google' && cur.indexOf('gemini') === -1 && cur.indexOf('learnlm') === -1) {
+                isMismatch = true;
+            } else if (prov === 'openai' && cur.indexOf('gemini') === 0) {
+                isMismatch = true;
+            } else if (prov === 'anthropic' && cur.indexOf('claude') === -1) {
+                // allow custom but warn
+                isMismatch = true;
+            }
+            if (isMismatch) {
+                $.jGrowl('Model "'+cur+'" not valid for '+prov+' — switching to '+meta.models[0], {themeState:'warning'});
+                $('#aim_model').val(meta.models[0]);
+                cur = meta.models[0];
+                // still append old as option for reference but not selected
+                sel.append($('<option>',{value:cur,text:cur + ' (auto-corrected)'}));
+            } else {
+                sel.append($('<option>',{value:cur,text:cur + ' (custom)'}));
+            }
         }
         if (meta.models.indexOf(cur) !== -1) sel.val(cur);
         else if (meta.models.length) {
-            // don't overwrite custom typed value, just highlight
             if (!cur) { sel.val(meta.models[0]); $('#aim_model').val(meta.models[0]); }
-            else sel.val(meta.models[0]);
+            else sel.val(cur);
         }
         $('#aim_default_base').text(meta.defaultBase || '');
         // hint for key
