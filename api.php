@@ -992,6 +992,9 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
             $hint = ' — Model "' . $model . '" not found for provider ' . $provider . '. Check Config → Model picker for valid models for this provider.';
         } elseif ($code === 401) {
             $hint = ' — check API key for ' . $provider;
+        } elseif ($code === 429) {
+            $hint = ' — Quota exceeded (free tier limit, e.g. 20 req for gemini-3.6-flash). Retry in 20-30s, check https://ai.dev/rate-limit or https://ai.google.dev/gemini-api/docs/rate-limits, or switch to Ollama/local or a different provider/model.';
+            if (preg_match('/retry in ([0-9.]+)s/i', $snippet, $rm)) $hint .= ' Suggested retry in ' . $rm[1] . 's.';
         }
         return ['success'=>false,'error'=>"HTTP $code: $snippet" . $hint];
     }
