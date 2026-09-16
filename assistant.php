@@ -54,6 +54,10 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
 .btn-mic:disabled { opacity:0.5; cursor:not-allowed; animation:none; }
 @keyframes aimPulse { 0%{ box-shadow:0 0 0 0 rgba(var(--bs-danger-rgb),0.5);} 70%{ box-shadow:0 0 0 8px rgba(var(--bs-danger-rgb),0);} 100%{ box-shadow:0 0 0 0 rgba(var(--bs-danger-rgb),0);} }
 .aim-interim { color:var(--bs-secondary-color); font-style:italic; font-size:12px; min-height:1.2em; }
+.aim-thinking { display:none; align-items:center; gap:8px; font-size:12px; color:var(--bs-secondary-color); padding:6px 10px; border:1px dashed var(--bs-border-color); border-radius:6px; background:var(--bs-tertiary-bg); margin-top:6px; }
+.aim-thinking.show { display:flex; }
+.aim-thinking .spinner { width:14px; height:14px; border:2px solid var(--bs-secondary-color); border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite; flex-shrink:0; }
+@keyframes spin { to { transform:rotate(360deg);} }
 </style>
 
 <?php include __DIR__ . '/tabs.inc'; ?>
@@ -96,6 +100,7 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
             <div id="aimMessages" class="aim-messages">
                 <div class="aim-msg aim-msg-system">Loading history…</div>
             </div>
+            <div id="aimThinking" class="aim-thinking"><div class="spinner"></div><span id="aimThinkingText">Thinking…</span><span id="aimThinkingDots"></span></div>
 
             <div class="aim-chat-input">
                 <textarea id="aimPrompt" placeholder="Describe what you want to configure… e.g. 'Create a playlist named Halloween with Spooky.fseq and schedule it Oct 31 18:00-23:00'" rows="2" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); aimChat.send();}"></textarea>
@@ -183,7 +188,18 @@ var aimChat = {
         if(!prompt){ $.jGrowl('Type a prompt first',{themeState:'error'}); return; }
         aimChat.busy=true;
         $('#aimSendBtn').prop('disabled',true).val('…');
-        $('#aimChatStatus').text('Sending…');
+        $('#aimChatStatus').text('Thinking…');
+        $('#aimThinking').addClass('show');
+        $('#aimThinkingText').text('Thinking… contacting ' + ($('#aim-cur-provider').text()||'AI'));
+        var _start = Date.now();
+        var _dots = 0;
+        aimChat._thinkTimer = setInterval(function(){
+            _dots = (_dots+1)%4;
+            $('#aimThinkingDots').text('.'.repeat(_dots));
+            var sec = Math.floor((Date.now()-_start)/1000);
+            $('#aimThinkingText').text('Thinking… contacting ' + ($('#aim-cur-provider').text()||'AI') + ' ('+sec+'s)');
+            if(sec>8) $('#aimChatStatus').text('Thinking… '+sec+'s — multi-step tasks (list→create) may take 10-20s');
+        }, 500);
         aimChat.addMsg('user', prompt);
         $('#aimPrompt').val('');
 
@@ -231,8 +247,12 @@ var aimChat = {
                 try{ var j=JSON.parse(xhr.responseText); if(j.error) m=j.error; }catch(e){}
                 aimChat.addMsg('system','Request failed: '+m,'');
                 $('#aimChatStatus').text('Failed');
+                clearInterval(aimChat._thinkTimer);
+                $('#aimThinking').removeClass('show');
             },
             complete: function(){
+                clearInterval(aimChat._thinkTimer);
+                $('#aimThinking').removeClass('show');
                 aimChat.busy=false;
                 $('#aimSendBtn').prop('disabled',false).val('Send ▶');
                 setTimeout(function(){ $('#aimChatStatus').text(''); }, 4000);

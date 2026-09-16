@@ -920,7 +920,7 @@ function aimBuildSystemPrompt($settings) {
     return "You are FPP AI Mode, an assistant that helps configure Falcon Player (FPP) via its local API.$contextNote\n"
         . "You have these tools: $toolsSnippet.\n"
         . "Rules:\n"
-        . "- Always READ before WRITE: call get_* / list_* to inspect current state before proposing create/update/delete.\n"
+        . "- For playlists/schedules you must READ first (list_/get_) to avoid duplicates, but for simple scalar sets with an explicit value (e.g. Set volume to 80%, Set brightness) you may call update_settings directly without a prior get.\n"
         . "- Explain each change briefly in your reply before calling tools.\n"
         . "- Use valid JSON for tool arguments. Times are HH:MM:SS, days like MTWThFSaSu or 127, booleans as true/false.\n"
         . "- Never invent playlist/media names not shown in context; ask the user if unsure.\n"
@@ -1098,7 +1098,7 @@ function aimTestEndpoint() {
 }
 
 function aimChatEndpoint() {
-    set_time_limit(60);
+    set_time_limit(120);
     $raw = file_get_contents('php://input');
     $body = json_decode($raw ?: '{}', true);
     if (!is_array($body)) $body = [];
