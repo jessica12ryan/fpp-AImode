@@ -66,8 +66,8 @@ function aimGetProviders() {
         'google' => [
             'label' => 'Google Gemini',
             'defaultBase' => 'https://generativelanguage.googleapis.com',
-            'defaultModel' => 'gemini-1.5-flash',
-            'models' => ['gemini-1.5-flash','gemini-1.5-pro','gemini-2.0-flash','gemini-1.0-pro'],
+            'defaultModel' => 'gemini-2.0-flash',
+            'models' => ['gemini-2.0-flash','gemini-2.0-flash-001','gemini-1.5-flash','gemini-1.5-pro','gemini-2.0-pro','gemini-1.0-pro'],
             'auth' => 'query',
             'needsKey' => true,
         ],
@@ -227,17 +227,50 @@ function aimSaveSettings($arr) {
     $file = aimGetSettingsFile();
     $dir = dirname($file);
     if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
-        aimLog('Save mkdir failed for ' . $dir);
-        return false;
+        aimLog('Save mkdir failed for ' . $dir . ' — trying parent plugindata');
+        // Try to create via plugindata parent as fallback
+        $parent = dirname($dir);
+        if (!is_dir($parent)) @mkdir($parent, 0775, true);
+        if (!@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            aimLog('Save mkdir still failed for ' . $dir . ' parent writable=' . (is_writable($parent) ? 'yes' : 'no'));
+            return false;
+        }
+    }
+    // Ensure dir is writable by fpp — install created as root, PHP runs as fpp
+    if (!is_writable($dir)) {
+        @chmod($dir, 0775);
+        if (function_exists('chown')) @chown($dir, 'fpp');
+        if (function_exists('chgrp')) @chgrp($dir, 'fpp');
+        // Ensure parent plugindata also writable
+        $parentPlug = dirname($dir);
+        if (!is_writable($parentPlug)) {
+            @chmod($parentPlug, 0775);
+            if (function_exists('chown')) @chown($parentPlug, 'fpp');
+            if (function_exists('chgrp')) @chgrp($parentPlug, 'fpp');
+        }
+    }
+    if (file_exists($file) && !is_writable($file)) {
+        @chmod($file, 0600);
+        if (function_exists('chown')) @chown($file, 'fpp');
+        if (function_exists('chgrp')) @chgrp($file, 'fpp');
     }
     $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     if ($json === false) return false;
     $ok = @file_put_contents($file, $json . "\n", LOCK_EX);
     if ($ok === false) {
-        aimLog('Save file_put_contents failed for ' . $file . ' dir writable=' . (is_writable($dir) ? 'yes' : 'no'));
-        return false;
+        // Try to fix perms and retry once
+        @chmod($dir, 0775);
+        if (function_exists('chown')) @chown($dir, 'fpp');
+        aimLog('Save retry after chmod/chown for ' . $file . ' dir writable=' . (is_writable($dir) ? 'yes' : 'no') . ' file exists=' . (file_exists($file) ? 'yes' : 'no'));
+        $ok = @file_put_contents($file, $json . "\n", LOCK_EX);
+        if ($ok === false) {
+            aimLog('Save file_put_contents still failed for ' . $file);
+            return false;
+        }
     }
     @chmod($file, 0600);
+    if (function_exists('chown')) @chown($file, 'fpp');
+    if (function_exists('chgrp')) @chgrp($file, 'fpp');
     // Best-effort: remove legacy file after successful migration to avoid duplicate secrets
     if ($ok !== false) @unlink(aimGetLegacySettingsFile());
     return $ok !== false;
@@ -663,24 +696,37 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
         return ['success'=>false,'error'=>'Provider not implemented: ' . $provider];
     }
 
-    // Curl
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 8);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-    // For Ollama local http, don't verify
-    if ($provider === 'ollama' && strpos($url, 'https://') !== 0) curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-
-    $resp = curl_exec($ch);
-    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $err  = curl_error($ch);
-    if (function_exists("curl_close") && version_compare(PHP_VERSION, "8.0", "<")) @curl_close($ch);
-
+    // Curl — with Google v1beta->v1 fallback for deprecated model/version combos
+    $doCurl = function($tryUrl, $tryHeaders, $tryBody) use ($provider, $timeout) {
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $tryUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 8);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $tryHeaders);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $tryBody);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        if ($provider === 'ollama' && strpos($tryUrl, 'https://') !== 0) curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        $r = curl_exec($ch);
+        $c = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $e = curl_error($ch);
+        if (function_exists("curl_close") && version_compare(PHP_VERSION, "8.0", "<")) @curl_close($ch);
+        return [$r, $c, $e];
+    };
+    list($resp, $code, $err) = $doCurl($url, $headers, $body);
+    if ($err) return ['success'=>false,'error'=>'Curl error: ' . $err];
+    // If Google v1beta returns 404 model not found, retry with v1
+    if ($provider === 'google' && $code === 404 && strpos($url, '/v1beta/') !== false && (stripos($resp, 'models/') !== false || stripos($resp, 'NOT_FOUND') !== false)) {
+        $altUrl = str_replace('/v1beta/', '/v1/', $url);
+        list($altResp, $altCode, $altErr) = $doCurl($altUrl, $headers, $body);
+        if (!$altErr && $altCode >= 200 && $altCode < 300) {
+            $resp = $altResp; $code = $altCode; $err = $altErr;
+        } else if (!$altErr) {
+            // Keep the more informative error (prefer alt if it has hint)
+            $resp = $altResp; $code = $altCode;
+        }
+    }
     if ($err) return ['success'=>false,'error'=>'Curl error: ' . $err];
     if ($code < 200 || $code >= 300) {
         $snippet = substr($resp ?: '', 0, 800);

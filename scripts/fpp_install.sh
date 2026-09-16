@@ -20,8 +20,14 @@ echo "$(date '+%Y-%m-%d %H:%M:%S') fpp-AImode: install to ${PLUGIN_DIR} pluginda
 echo "fpp-AImode: installing to ${PLUGIN_DIR} (plugindata ${PLUGINDATA})"
 
 # plugindata for credentials per §14.11 — 0600 files, not config/
+mkdir -p "${MEDIADIR}/plugindata" 2>/dev/null || true
+chmod 775 "${MEDIADIR}/plugindata" 2>/dev/null || true
+chown fpp:fpp "${MEDIADIR}/plugindata" 2>/dev/null || true
 mkdir -p "${PLUGINDATA}"
 chmod 775 "${PLUGINDATA}" 2>/dev/null || true
+chown fpp:fpp "${PLUGINDATA}" 2>/dev/null || true
+# Also ensure media dir itself writable
+chown fpp:fpp "${MEDIADIR}" 2>/dev/null || true
 
 # Migrate legacy config/settings.json -> plugindata if present
 if [ -f "${PLUGIN_DIR}/config/settings.json" ] && [ ! -f "${PLUGINDATA}/settings.json" ]; then
@@ -37,8 +43,8 @@ fi
 # Ensure perms are correct (idempotent) — never 0777
 chmod 775 "${PLUGIN_DIR}" 2>/dev/null || true
 if [ -d "${PLUGIN_DIR}/config" ]; then chmod 775 "${PLUGIN_DIR}/config" 2>/dev/null || true; fi
-if [ -f "${PLUGINDATA}/settings.json" ]; then chmod 600 "${PLUGINDATA}/settings.json" 2>/dev/null || true; fi
-if [ -f "${PLUGINDATA}/history.json" ]; then chmod 600 "${PLUGINDATA}/history.json" 2>/dev/null || true; fi
+if [ -f "${PLUGINDATA}/settings.json" ]; then chmod 600 "${PLUGINDATA}/settings.json" 2>/dev/null || true; chown fpp:fpp "${PLUGINDATA}/settings.json" 2>/dev/null || true; fi
+if [ -f "${PLUGINDATA}/history.json" ]; then chmod 600 "${PLUGINDATA}/history.json" 2>/dev/null || true; chown fpp:fpp "${PLUGINDATA}/history.json" 2>/dev/null || true; fi
 # Legacy files if still present — tighten but don't delete on install (migration keeps them until save)
 if [ -f "${PLUGIN_DIR}/config/settings.json" ]; then chmod 600 "${PLUGIN_DIR}/config/settings.json" 2>/dev/null || true; fi
 if [ -f "${PLUGIN_DIR}/config/history.json" ]; then chmod 600 "${PLUGIN_DIR}/config/history.json" 2>/dev/null || true; fi
