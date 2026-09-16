@@ -495,8 +495,23 @@ function aimExecuteTool($name, $args) {
             return $data !== null ? ['success'=>true,'result'=>$data] : ['success'=>false,'error'=>'Could not reach FPPD status'];
         case 'get_settings':
             if (!empty($args['key'])) {
-                $v = aimFppGet('/api/settings/' . urlencode($args['key']), 3);
-                return ['success'=>true,'result'=>[$args['key']=>$v]];
+                $key = $args['key'];
+                // Volume is runtime state, not a plain setting — fetch via fppd status for real value
+                if (strtolower($key) === 'volume') {
+                    $status = aimFppGet('/api/fppd/status', 3);
+                    if (is_array($status) && isset($status['volume'])) {
+                        return ['success'=>true,'result'=>['volume'=>$status['volume'], 'Volume'=>$status['volume']]];
+                    }
+                    $v = aimFppGet('/api/settings/volume', 3);
+                    if ($v !== null && $v !== [] && $v !== '') {
+                        return ['success'=>true,'result'=>['volume'=>$v, 'Volume'=>$v]];
+                    }
+                    $v = aimFppGet('/api/settings/' . urlencode($key), 3);
+                    // FPP returns [] for unknown key, treat as not found but still return
+                    return ['success'=>true,'result'=>[$key=>$v]];
+                }
+                $v = aimFppGet('/api/settings/' . urlencode($key), 3);
+                return ['success'=>true,'result'=>[$key=>$v]];
             }
             $data = aimFppGet('/api/settings', 3);
             return $data !== null ? ['success'=>true,'result'=>$data] : ['success'=>false,'error'=>'Could not fetch settings'];
@@ -504,9 +519,58 @@ function aimExecuteTool($name, $args) {
             if (empty($args['settings']) || !is_array($args['settings'])) {
                 return ['success'=>false,'error'=>'settings must be an object'];
             }
-            // FPP expects PUT /api/settings with JSON body; we do per-key or bulk
-            $res = aimFppRequest('PUT', '/api/settings', $args['settings'], 4);
-            return $res['success'] ? ['success'=>true,'result'=>$res['body']] : ['success'=>false,'error'=>$res['error'] ?? 'update failed', 'code'=>$res['code']];
+            $settingsIn = $args['settings'];
+            $volumeResult = null;
+            // Handle Volume specially via FPP command API for immediate effect (§3.2 command, not raw settings file)
+            $volKey = null;
+            if (isset($settingsIn['Volume'])) $volKey = 'Volume';
+            elseif (isset($settingsIn['volume'])) $volKey = 'volume';
+            if ($volKey !== null) {
+                $volRaw = $settingsIn[$volKey];
+                unset($settingsIn[$volKey]);
+                // Also handle "80%" string
+                $volInt = intval(trim(str_replace(['%',' '], '', strval($volRaw))));
+                $volInt = max(0, min(100, $volInt));
+                // Try FPP command API — PRIMARY way to set runtime volume (see forum: curl http://127.0.0.1/api/command/Volume%20Set/100)
+                $volRes = aimFppRequest('POST', '/api/command', ['command'=>'Volume Set','args'=>[strval($volInt)]], 4);
+                if (!$volRes['success']) {
+                    $volRes = aimFppRequest('GET', '/api/command/Volume%20Set/' . $volInt, null, 4);
+                }
+                if (!$volRes['success']) {
+                    $volRes = aimFppRequest('POST', '/api/command/Volume%20Set/' . $volInt, null, 4);
+                }
+                // Also persist to settings for next boot (some FPP versions store volume as setting)
+                $persist = aimFppRequest('PUT', '/api/settings/volume', $volInt, 4);
+                if (!$persist['success']) {
+                    $persist = aimFppRequest('PUT', '/api/settings/Volume', $volInt, 4);
+                }
+                $volumeResult = ['volume'=>$volInt, 'command'=>$volRes, 'persist'=>$persist];
+                // If no other settings to update, return volume result directly
+                if (empty($settingsIn)) {
+                    if (!empty($volRes['success'])) {
+                        return ['success'=>true,'result'=>['volume'=>$volInt, 'message'=>"Volume set to $volInt% via Volume Set command"]];
+                    }
+                    return ['success'=>false,'error'=>$volRes['error'] ?? 'Volume Set failed', 'code'=>$volRes['code'] ?? 0, 'volume'=>$volInt];
+                }
+            }
+            // Remaining settings via bulk PUT (for non-volume keys)
+            if (!empty($settingsIn)) {
+                $res = aimFppRequest('PUT', '/api/settings', $settingsIn, 4);
+                if (!$res['success']) {
+                    // If volume was also requested, include its result in error
+                    $err = $res['error'] ?? 'update failed';
+                    if ($volumeResult) $err .= ' (volume: ' . json_encode($volumeResult) . ')';
+                    return ['success'=>false,'error'=>$err, 'code'=>$res['code']];
+                }
+                $combined = $res['body'];
+                if ($volumeResult) {
+                    $combined['volume'] = $volumeResult['volume'] ?? null;
+                    $combined['_volumeCommand'] = $volumeResult;
+                }
+                return ['success'=>true,'result'=>$combined];
+            }
+            // Only volume was requested and succeeded
+            return ['success'=>true,'result'=>$volumeResult];
         case 'list_playlists':
             $data = aimFppGet('/api/playlists', 3);
             return $data !== null ? ['success'=>true,'result'=>$data] : ['success'=>false,'error'=>'Could not list playlists'];
