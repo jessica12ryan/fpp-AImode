@@ -1088,6 +1088,7 @@ function getEndpointsfppAImode() {
     $r[] = ['method'=>'GET', 'endpoint'=>'status', 'callback'=>'aimStatusEndpoint'];
     $r[] = ['method'=>'GET', 'endpoint'=>'diagnostics', 'callback'=>'aimDiagnosticsEndpoint'];
     $r[] = ['method'=>'GET', 'endpoint'=>'tools', 'callback'=>'aimToolsEndpoint'];
+    $r[] = ['method'=>'GET', 'endpoint'=>'models', 'callback'=>'aimModelsEndpoint'];
     $r[] = ['method'=>'POST', 'endpoint'=>'models', 'callback'=>'aimModelsEndpoint'];
     $r[] = ['method'=>'POST', 'endpoint'=>'save', 'callback'=>'aimSaveEndpoint'];
     $r[] = ['method'=>'POST', 'endpoint'=>'test', 'callback'=>'aimTestEndpoint'];
