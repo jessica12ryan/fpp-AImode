@@ -15,7 +15,7 @@ FPP has dozens of settings, playlists, schedules, and channel outputs. **AI Mode
 - **Conversational assistant** — chat history, streaming-style replies, retry
 - **Tool calling** — AI proposes structured actions (create playlist, add schedule, update settings, manage outputs, etc.); you review & approve
 - **Dry-run mode** — see what *would* happen without changing anything
-- **Auto-approve toggle** — for trusted LANs (off by default)
+- **Auto-approve toggle** — for trusted LANs (on by default)
 - **FPP-aware system prompt** — plugin injects live FPP context (status, playlists, settings, outputs) so the model knows your setup
 
 ## Requirements

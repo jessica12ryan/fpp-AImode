@@ -15,7 +15,7 @@ if ($aimMediaDir === $aimPluginDir) $aimDataDir = $aimPluginDir . '/config';
 $aimSettingsFile = $aimDataDir . '/settings.json';
 $aimLegacySettingsFile = $aimPluginDir . '/config/settings.json';
 if (!file_exists($aimSettingsFile) && file_exists($aimLegacySettingsFile)) $aimSettingsFile = $aimLegacySettingsFile;
-$aimDefaults = ['provider'=>'openai','api_key'=>'','model'=>'gpt-4o-mini','dry_run'=>0,'auto_approve'=>0];
+$aimDefaults = ['provider'=>'openai','api_key'=>'','model'=>'gpt-4o-mini','dry_run'=>0,'auto_approve'=>1];
 $aimSettings = $aimDefaults;
 if (file_exists($aimSettingsFile)) {
     $j = json_decode(@file_get_contents($aimSettingsFile), true);

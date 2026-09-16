@@ -26,7 +26,7 @@ $aimDefaults = [
     'system_prompt' => '',
     'temperature' => 0.7,
     'max_tokens' => 2048,
-    'auto_approve' => 0,
+    'auto_approve' => 1,
     'dry_run' => 0,
     'include_fpp_context' => 1,
     'history_enabled' => 1,
@@ -173,7 +173,7 @@ $showDevTab = $uiLevel >= 3;
                     <td style="padding:4px;">
                         <label><input type="checkbox" id="aim_dryrun" <?php echo !empty($aimSettings['dry_run'])?'checked':''; ?>> Dry-run (propose but never execute)</label>
                         <label style="margin-left:16px;"><input type="checkbox" id="aim_auto" <?php echo !empty($aimSettings['auto_approve'])?'checked':''; ?>> Auto-approve tool calls</label>
-                        <div class="text-secondary" style="font-size:12px; margin-top:4px;">Auto-approve executes every tool call immediately after the AI reply. Off by default — you approve each call.</div>
+                        <div class="text-secondary" style="font-size:12px; margin-top:4px;">Auto-approve executes every tool call immediately after the AI reply. <b>On by default</b> — uncheck to require manual Approve.</div>
                     </td>
                 </tr>
                 <tr>

@@ -129,7 +129,7 @@ function aimDefaultSettings() {
         'system_prompt' => '',
         'temperature' => 0.7,
         'max_tokens' => AIM_MAX_TOKENS_DEFAULT,
-        'auto_approve' => 0,
+        'auto_approve' => 1,
         'dry_run' => 0,
         'include_fpp_context' => 1,
         'history_enabled' => 1,

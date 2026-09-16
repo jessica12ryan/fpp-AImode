@@ -72,7 +72,7 @@ $showDevTab = $uiLevel >= 3;
             </p>
             <ul>
                 <li><b>Dry-run</b> (Config → Behavior) — when on, approvals are shown but nothing executes. Good for testing prompts.</li>
-                <li><b>Auto-approve</b> — when on, every tool call runs immediately after the reply with no click needed. Off by default; only enable on a trusted LAN.</li>
+                <li><b>Auto-approve</b> — when on, every tool call runs immediately after the reply with no click needed. <b>On by default</b>; uncheck on a trusted LAN only if you prefer manual approval.</li>
                 <li>Every execution is logged to <code>/home/fpp/media/logs/plugin-fpp-AImode.log</code> with redacted keys.</li>
             </ul>
 
