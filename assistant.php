@@ -88,6 +88,15 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
                 </div>
             </div>
 
+            <div id="aimConvBar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; padding:8px; border:1px solid var(--bs-border-color); border-radius:6px; background:var(--bs-body-bg);">
+                <span class="text-secondary" style="font-size:12px; white-space:nowrap;">Conversation:</span>
+                <select id="aimConvSelect" class="form-select" style="flex:1 1 160px; max-width:260px; font-size:12px;" onchange="aimConv.switch(this.value)"></select>
+                <button type="button" class="buttons" onclick="aimConv.create()" title="New conversation">+ New</button>
+                <button type="button" class="buttons" onclick="aimConv.rename()" title="Rename current">Rename</button>
+                <button type="button" class="buttons" onclick="aimConv.delete()" title="Delete current">Delete</button>
+                <span id="aimConvStatus" class="text-secondary" style="font-size:11px; flex:1;"></span>
+            </div>
+
             <div class="aim-examples">
                 <span class="text-secondary" style="font-size:12px; align-self:center;">Try:</span>
                 <button class="buttons" onclick="aimChat.fillExample(this)">What playlists do I have?</button>
@@ -145,10 +154,11 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
 <script>
 var aimChat = {
     busy:false,
+    currentConvId: null,
+    pollTimer: null,
     fillExample: function(btn){ $('#aimPrompt').val($(btn).text()).focus(); },
     esc: function(s){ if(s==null) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); },
     md: function(s){
-        // minimal markdown: code blocks + inline code + bold
         if(!s) return '';
         var h = aimChat.esc(s);
         h = h.replace(/```([\s\S]*?)```/g, function(_,code){ return '<pre style="white-space:pre-wrap;background:var(--bs-tertiary-bg,#f8f9fa);padding:8px;border-radius:4px;overflow:auto;">'+code+'</pre>'; });
@@ -171,7 +181,6 @@ var aimChat = {
         var args = tc.arguments || {};
         var argStr = JSON.stringify(args, null, 2);
         var id = 'tool_'+Date.now()+'_'+idx;
-        // Use data attributes to avoid inline JSON escaping issues
         var encoded = encodeURIComponent(JSON.stringify(args));
         var html = '<div class="aim-tool-card" id="'+id+'" data-name="'+aimChat.esc(name)+'" data-args="'+aimChat.esc(encoded)+'">';
         html += '<b>🔧 Tool:</b> <code>'+aimChat.esc(name)+'</code>';
@@ -186,6 +195,8 @@ var aimChat = {
         if(aimChat.busy) return;
         var prompt = $('#aimPrompt').val().trim();
         if(!prompt){ $.jGrowl('Type a prompt first',{themeState:'error'}); return; }
+        var convId = aimConv.currentId || aimChat.currentConvId;
+        if(!convId && aimConv.currentId) convId = aimConv.currentId;
         aimChat.busy=true;
         $('#aimSendBtn').prop('disabled',true).val('…');
         $('#aimChatStatus').text('Thinking…');
@@ -202,22 +213,31 @@ var aimChat = {
         }, 500);
         aimChat.addMsg('user', prompt);
         $('#aimPrompt').val('');
+        // Update conversation status locally to thinking for immediate UI
+        if(convId) aimConv.setLocalStatus(convId, 'thinking');
 
         $.ajax({
             url:'api/plugin/fpp-AImode/chat',
             type:'POST',
             contentType:'application/json',
-            data: JSON.stringify({prompt: prompt}),
+            data: JSON.stringify({prompt: prompt, conversationId: convId}),
             dataType:'json',
             success: function(r){
                 if(!r.success){
                     aimChat.addMsg('system','Error: '+(r.error||'Unknown'), '');
                     $('#aimChatStatus').text('Error');
+                    if(r.conversationId) aimConv.currentId = r.conversationId;
                     return;
+                }
+                // Update current conversation id from response (may be new)
+                if(r.conversationId) {
+                    aimChat.currentConvId = r.conversationId;
+                    aimConv.currentId = r.conversationId;
+                    localStorage.setItem('fppAImode_activeConv', r.conversationId);
+                    aimConv.refreshList();
                 }
                 var meta = (r.provider||'')+' / '+(r.model||'') + (r.dry_run?' · dry-run':'') + (r.auto_approve?' · auto':'');
                 aimChat.addMsg('assistant', r.reply || '(no reply)', meta);
-                // tool calls
                 if(r.tool_calls && r.tool_calls.length){
                     var container = $('<div style="margin-bottom:12px;">');
                     if(r.dry_run) container.append('<div class="text-warning" style="font-size:12px; margin-bottom:4px;">Dry-run enabled — tools not executed. Disable in Config to allow execution.</div>');
@@ -237,18 +257,21 @@ var aimChat = {
                     $('#aimMessages').append(container);
                     aimChat.scrollBottom();
                 }
-                // also show executed if any (when auto)
                 $('#aimChatStatus').text(r.tool_calls && r.tool_calls.length ? r.tool_calls.length+' tool(s) proposed' : 'Done');
-                // update badges live
                 aimChat.refreshStatus();
+                // Refresh conversation to show updated history
+                if(r.conversationId) aimConv.load(r.conversationId, true);
+                else aimConv.refreshList();
             },
             error: function(xhr){
                 var m='Could not reach API';
-                try{ var j=JSON.parse(xhr.responseText); if(j.error) m=j.error; }catch(e){}
+                try{ var j=JSON.parse(xhr.responseText); if(j.error) m=j.error; if(j.conversationId) aimConv.currentId = j.conversationId; }catch(e){}
                 aimChat.addMsg('system','Request failed: '+m,'');
                 $('#aimChatStatus').text('Failed');
                 clearInterval(aimChat._thinkTimer);
                 $('#aimThinking').removeClass('show');
+                // If request failed but server is still thinking in background, start polling
+                if(aimConv.currentId) aimConv.startPolling(aimConv.currentId);
             },
             complete: function(){
                 clearInterval(aimChat._thinkTimer);
@@ -256,6 +279,10 @@ var aimChat = {
                 aimChat.busy=false;
                 $('#aimSendBtn').prop('disabled',false).val('Send ▶');
                 setTimeout(function(){ $('#aimChatStatus').text(''); }, 4000);
+                // Ensure polling stops if we got final result, otherwise polling will handle
+                aimConv.stopPolling();
+                // If conversation is still thinking (background), start polling
+                setTimeout(function(){ aimConv.checkAndPoll(); }, 500);
             }
         });
     },
@@ -305,40 +332,24 @@ var aimChat = {
         $(btn).prop('disabled',true).text('Approved');
     },
     loadHistory: function(){
-        $('#aimMessages').html('<div class="aim-msg aim-msg-system">Loading…</div>');
-        $.ajax({
-            url:'api/plugin/fpp-AImode/history',
-            type:'GET',
-            dataType:'json',
-            success: function(r){
-                $('#aimMessages').empty();
-                if(!r.entries || !r.entries.length){
-                    $('#aimMessages').html('<div class="aim-msg aim-msg-system">No history yet. Try one of the examples above.</div>');
-                    return;
-                }
-                r.entries.forEach(function(e){
-                    var role = e.role==='user'?'user':'assistant';
-                    var meta = e.ts || '';
-                    if(e.meta && e.meta.tool_calls && e.meta.tool_calls.length) meta += ' · ' + e.meta.tool_calls.length + ' tool(s)';
-                    aimChat.addMsg(role, e.content, meta);
-                });
-            },
-            error: function(){ $('#aimMessages').html('<div class="aim-msg aim-msg-system">Could not load history.</div>'); }
-        });
+        // Legacy: now loads active conversation
+        if(aimConv.currentId) aimConv.load(aimConv.currentId);
+        else aimConv.refreshList();
     },
     clearHistory: function(){
-        if(!confirm('Clear conversation history? This cannot be undone.')) return;
+        if(!aimConv.currentId) return;
+        if(!confirm('Clear this conversation? This cannot be undone.')) return;
         $.ajax({
-            url:'api/plugin/fpp-AImode/history/clear',
-            type:'POST',
-            contentType:'application/json',
-            data:'{}',
+            url:'api/plugin/fpp-AImode/conversations/'+encodeURIComponent(aimConv.currentId),
+            type:'DELETE',
             dataType:'json',
             success: function(){
-                $('#aimMessages').html('<div class="aim-msg aim-msg-system">History cleared.</div>');
-                $.jGrowl('History cleared',{themeState:'success'});
+                $('#aimMessages').html('<div class="aim-msg aim-msg-system">Conversation cleared.</div>');
+                aimConv.refreshList();
+                $.jGrowl('Conversation deleted',{themeState:'success'});
+                aimConv.create();
             },
-            error: function(){ $.jGrowl('Could not clear history',{themeState:'error'}); }
+            error: function(){ $.jGrowl('Could not clear',{themeState:'error'}); }
         });
     },
     refreshStatus: function(){
@@ -349,130 +360,213 @@ var aimChat = {
             success: function(d){
                 if(d.settings){
                     $('#aim-cur-provider').text(d.settings.provider || '');
-                    // model is redacted; keep current
                 }
             }
         });
     }
 };
 
-var aimVoice = {
-    recognition: null,
-    listening: false,
-    supported: !!(window.SpeechRecognition || window.webkitSpeechRecognition),
-    interim: '',
-    finalText: '',
-    init: function(){
-        var sup = $('#aimVoiceSupport');
-        var btn = $('#aimMicBtn');
-        if(!aimVoice.supported){
-            sup.text('Voice not supported in this browser — try Chrome/Edge on desktop.');
-            btn.prop('disabled', true).attr('title','Web Speech API not available');
-            $('#aimVoiceStatus').text('');
-            return;
-        }
-        sup.text('Browser speech ready');
-        // Restore prefs from localStorage
-        try{
-            var lang = localStorage.getItem('fppAImode_voiceLang');
-            if(lang) $('#aimVoiceLang').val(lang);
-            var auto = localStorage.getItem('fppAImode_voiceAutoSend');
-            if(auto === '1') $('#aimVoiceAutoSend').prop('checked', true);
-        }catch(e){}
-        $('#aimVoiceLang').on('change', function(){
-            try{ localStorage.setItem('fppAImode_voiceLang', $(this).val()); }catch(e){}
-        });
-        $('#aimVoiceAutoSend').on('change', function(){
-            try{ localStorage.setItem('fppAImode_voiceAutoSend', this.checked ? '1' : '0'); }catch(e){}
-        });
-        var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        aimVoice.recognition = new SR();
-        aimVoice.recognition.interimResults = true;
-        aimVoice.recognition.continuous = false;
-        aimVoice.recognition.maxAlternatives = 1;
-        aimVoice.recognition.onstart = function(){
-            aimVoice.listening = true;
-            btn.addClass('listening').text('⏹ Stop');
-            $('#aimVoiceStatus').html('<span class="text-danger">● Listening… speak now</span>');
-            $('#aimVoiceInterim').text('');
-            aimVoice.finalText = '';
-        };
-        aimVoice.recognition.onresult = function(event){
-            var interim = '';
-            var final = '';
-            for(var i=event.resultIndex; i<event.results.length; i++){
-                var res = event.results[i];
-                if(res.isFinal) final += res[0].transcript;
-                else interim += res[0].transcript;
-            }
-            if(interim) $('#aimVoiceInterim').text('… ' + interim);
-            if(final){
-                $('#aimVoiceInterim').text('');
-                var ta = $('#aimPrompt');
-                var cur = ta.val();
-                // Append with space if needed
-                var toInsert = final.trim();
-                if(cur && !cur.endsWith(' ') && !cur.endsWith('\n')) toInsert = ' ' + toInsert;
-                ta.val(cur + toInsert);
-                ta.focus();
-                aimVoice.finalText += (aimVoice.finalText ? ' ' : '') + final.trim();
-            }
-        };
-        aimVoice.recognition.onerror = function(event){
-            var msg = event.error || 'unknown';
-            if(msg === 'not-allowed' || msg === 'permission-denied'){
-                $('#aimVoiceStatus').html('<span class="text-danger">Microphone permission denied — allow mic access in browser.</span>');
-                $.jGrowl('Microphone permission denied',{themeState:'error'});
-            } else if(msg === 'no-speech'){
-                $('#aimVoiceStatus').html('<span class="text-warning">No speech detected — try again.</span>');
-            } else if(msg === 'audio-capture'){
-                $('#aimVoiceStatus').html('<span class="text-danger">No microphone found.</span>');
-            } else {
-                $('#aimVoiceStatus').html('<span class="text-danger">Voice error: '+aimChat.esc(msg)+'</span>');
-            }
-            $('#aimVoiceInterim').text('');
-        };
-        aimVoice.recognition.onend = function(){
-            var wasListening = aimVoice.listening;
-            aimVoice.listening = false;
-            btn.removeClass('listening').text('🎤 Voice Input');
-            $('#aimVoiceInterim').text('');
-            if(wasListening){
-                if(aimVoice.finalText){
-                    $('#aimVoiceStatus').html('<span class="text-success">✓ Captured: “'+aimChat.esc(aimVoice.finalText.slice(0,80))+'”</span>');
-                    if($('#aimVoiceAutoSend').is(':checked')){
-                        setTimeout(function(){ aimChat.send(); }, 250);
-                    }
-                } else {
-                    $('#aimVoiceStatus').html('<span class="text-secondary">Stopped — no transcript. Try again.</span>');
+var aimConv = {
+    currentId: null,
+    pollTimer: null,
+    list: [],
+    refreshList: function(){
+        $.ajax({
+            url:'api/plugin/fpp-AImode/conversations',
+            type:'GET',
+            dataType:'json',
+            success: function(r){
+                if(!r.success || !r.conversations) return;
+                aimConv.list = r.conversations;
+                var sel = $('#aimConvSelect').empty();
+                r.conversations.forEach(function(c){
+                    var label = c.title + (c.status==='thinking' ? ' ● thinking' : '') + ' ('+c.messageCount+')';
+                    sel.append($('<option>',{value:c.id,text:label}));
+                });
+                // Restore active
+                var active = localStorage.getItem('fppAImode_activeConv') || (r.conversations[0] && r.conversations[0].id);
+                if(active && r.conversations.some(function(c){return c.id===active;})){
+                    sel.val(active);
+                    aimConv.currentId = active;
+                    aimChat.currentConvId = active;
+                    aimConv.load(active);
+                } else if(r.conversations[0]){
+                    sel.val(r.conversations[0].id);
+                    aimConv.currentId = r.conversations[0].id;
+                    aimChat.currentConvId = r.conversations[0].id;
+                    aimConv.load(r.conversations[0].id);
                 }
-                setTimeout(function(){ $('#aimVoiceStatus').text(''); aimVoice.finalText=''; }, 4000);
+                aimConv.updateStatusBar();
             }
-        };
+        });
     },
-    toggle: function(){
-        if(!aimVoice.supported){
-            $.jGrowl('Voice input not supported in this browser',{themeState:'error'});
-            return;
+    load: function(id, silent){
+        if(!id) return;
+        aimConv.currentId = id;
+        aimChat.currentConvId = id;
+        localStorage.setItem('fppAImode_activeConv', id);
+        $('#aimConvSelect').val(id);
+        $.ajax({
+            url:'api/plugin/fpp-AImode/conversations/'+encodeURIComponent(id),
+            type:'GET',
+            dataType:'json',
+            success: function(r){
+                if(!r.success || !r.conversation) return;
+                var conv = r.conversation;
+                $('#aimMessages').empty();
+                if(!conv.messages || !conv.messages.length){
+                    $('#aimMessages').html('<div class="aim-msg aim-msg-system">No messages yet. Try one of the examples above.</div>');
+                } else {
+                    conv.messages.forEach(function(e){
+                        var role = e.role==='user'?'user':'assistant';
+                        var meta = e.ts || '';
+                        if(e.meta && e.meta.tool_calls && e.meta.tool_calls.length) meta += ' · ' + e.meta.tool_calls.length + ' tool(s)';
+                        if(e.meta && e.meta.provider) meta += ' · ' + e.meta.provider;
+                        aimChat.addMsg(role, e.content, meta);
+                        // Render tool calls if present in meta
+                        if(e.meta && e.meta.tool_calls && e.meta.tool_calls.length && role==='assistant'){
+                            var container = $('<div style="margin-bottom:8px;">');
+                            // Show executed if present
+                            if(e.meta.executed && e.meta.executed.length){
+                                e.meta.executed.forEach(function(ex){
+                                    var ok = ex.result && ex.result.success;
+                                    container.append('<div class="aim-tool-card" style="border-left:3px solid var('+(ok?'--bs-success':'--bs-danger')+')"><b>🔧 '+(ex.call.name||'')+'</b> <span class="text-secondary" style="font-size:11px;">(auto-executed)</span><pre>'+aimChat.esc(JSON.stringify(ex.call.arguments||{},null,2))+'</pre></div>');
+                                });
+                            }
+                            $('#aimMessages').append(container);
+                        }
+                    });
+                }
+                aimConv.updateStatusBar();
+                // If conversation is thinking, start polling
+                if(conv.status==='thinking' && !silent){
+                    aimConv.startPolling(id);
+                    $('#aimThinking').addClass('show');
+                    $('#aimThinkingText').text('Resuming thinking…');
+                } else if(!silent){
+                    $('#aimThinking').removeClass('show');
+                }
+            }
+        });
+    },
+    switch: function(id){ aimConv.load(id); },
+    create: function(){
+        var title = prompt('New conversation title:', 'Chat ' + new Date().toLocaleString());
+        if(title===null) return;
+        $.ajax({
+            url:'api/plugin/fpp-AImode/conversations',
+            type:'POST',
+            contentType:'application/json',
+            data: JSON.stringify({title: title}),
+            dataType:'json',
+            success: function(r){
+                if(r.success && r.conversation){
+                    aimConv.refreshList();
+                    setTimeout(function(){ aimConv.load(r.conversation.id); }, 300);
+                }
+            }
+        });
+    },
+    delete: function(){
+        var id = aimConv.currentId;
+        if(!id) return;
+        if(!confirm('Delete conversation "'+($('#aimConvSelect option:selected').text())+'"?')) return;
+        $.ajax({
+            url:'api/plugin/fpp-AImode/conversations/'+encodeURIComponent(id),
+            type:'DELETE',
+            dataType:'json',
+            success: function(){
+                localStorage.removeItem('fppAImode_activeConv');
+                aimConv.refreshList();
+            }
+        });
+    },
+    rename: function(){
+        var id = aimConv.currentId;
+        if(!id) return;
+        var curTitle = $('#aimConvSelect option:selected').text().split(' (')[0];
+        var title = prompt('Rename conversation:', curTitle);
+        if(!title || title===curTitle) return;
+        $.ajax({
+            url:'api/plugin/fpp-AImode/conversations/'+encodeURIComponent(id),
+            type:'PUT',
+            contentType:'application/json',
+            data: JSON.stringify({title: title}),
+            dataType:'json',
+            success: function(){ aimConv.refreshList(); }
+        });
+    },
+    setLocalStatus: function(id, status){
+        $('#aimConvStatus').text(status==='thinking' ? '● thinking…' : '');
+        // Update select label
+        var opt = $('#aimConvSelect option[value="'+id+'"]');
+        if(opt.length){
+            var base = opt.text().replace(' ● thinking','').replace(' (',' (');
+            if(status==='thinking' && opt.text().indexOf('thinking')===-1) opt.text(opt.text().replace(' (',' ● thinking ('));
         }
-        if(aimVoice.listening){
-            try{ aimVoice.recognition.stop(); }catch(e){}
-            return;
+    },
+    updateStatusBar: function(){
+        var conv = aimConv.list.find(function(c){return c.id===aimConv.currentId;});
+        if(conv && conv.status==='thinking'){
+            $('#aimConvStatus').html('<span class="text-warning">● thinking…</span>');
+            $('#aimThinking').addClass('show');
+        } else {
+            $('#aimConvStatus').text('');
+            $('#aimThinking').removeClass('show');
         }
-        var lang = $('#aimVoiceLang').val();
-        if(!lang) lang = navigator.language || 'en-US';
-        aimVoice.recognition.lang = lang;
-        aimVoice.finalText = '';
-        try{ aimVoice.recognition.start(); }catch(e){
-            $('#aimVoiceStatus').html('<span class="text-danger">Could not start voice: '+aimChat.esc(e.message||String(e))+'</span>');
-        }
+    },
+    startPolling: function(id){
+        aimConv.stopPolling();
+        aimConv.pollTimer = setInterval(function(){ aimConv.poll(id); }, 2000);
+    },
+    stopPolling: function(){ if(aimConv.pollTimer) clearInterval(aimConv.pollTimer); aimConv.pollTimer=null; },
+    poll: function(id){
+        $.ajax({
+            url:'api/plugin/fpp-AImode/conversations/'+encodeURIComponent(id),
+            type:'GET',
+            dataType:'json',
+            success: function(r){
+                if(!r.success || !r.conversation) return;
+                var conv = r.conversation;
+                // If status changed to idle and messages grew, reload
+                var localCount = $('#aimMessages .aim-msg').length;
+                // Simple: if message count increased or status idle, reload
+                if(conv.messages && conv.messages.length > localCount){
+                    aimConv.load(id, true);
+                }
+                if(conv.status !== 'thinking'){
+                    aimConv.stopPolling();
+                    $('#aimThinking').removeClass('show');
+                    aimConv.refreshList();
+                } else {
+                    $('#aimConvStatus').html('<span class="text-warning">● thinking… '+conv.messages.length+' msgs</span>');
+                }
+            }
+        });
+    },
+    checkAndPoll: function(){
+        if(!aimConv.currentId) return;
+        $.ajax({
+            url:'api/plugin/fpp-AImode/conversations/'+encodeURIComponent(aimConv.currentId),
+            type:'GET',
+            dataType:'json',
+            success: function(r){
+                if(r.success && r.conversation && r.conversation.status==='thinking'){
+                    aimConv.startPolling(r.conversation.id);
+                }
+            }
+        });
     }
 };
 
 $(document).ready(function(){
-    aimChat.loadHistory();
-    // poll status badges occasionally
+    aimConv.refreshList();
     setInterval(aimChat.refreshStatus, 15000);
+    // Background thinking poll — survives page refresh/navigation
+    setInterval(function(){ aimConv.checkAndPoll(); }, 5000);
+    document.addEventListener('visibilitychange', function(){ if(!document.hidden) aimConv.checkAndPoll(); });
+    // Also handle page show (bfcache)
+    window.addEventListener('pageshow', function(){ aimConv.checkAndPoll(); });
     aimVoice.init();
 });
 </script>

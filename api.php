@@ -324,6 +324,155 @@ function aimClearHistory() {
     @unlink(aimGetLegacyHistoryFile());
 }
 
+/* ── Conversations (multiple, background-aware) ── */
+function aimGetConversationsDir() {
+    return aimGetDataDir() . '/conversations';
+}
+function aimGetConversationsIndexFile() {
+    return aimGetConversationsDir() . '/_index.json';
+}
+function aimEnsureConversationsMigrated() {
+    $dir = aimGetConversationsDir();
+    if (!is_dir($dir)) @mkdir($dir, 0775, true);
+    $idxFile = aimGetConversationsIndexFile();
+    if (file_exists($idxFile)) return;
+    // Migrate legacy single history.json if present and no conversations yet
+    $history = aimLoadHistory();
+    if (!empty($history)) {
+        $id = 'conv_' . substr(md5(uniqid('', true)), 0, 8);
+        $title = 'Imported history';
+        // Try to derive title from first user message
+        foreach ($history as $m) {
+            if (($m['role'] ?? '') === 'user' && !empty($m['content'])) {
+                $title = mb_substr(trim($m['content']), 0, 40);
+                if (mb_strlen(trim($m['content'])) > 40) $title .= '…';
+                break;
+            }
+        }
+        $conv = [
+            'id' => $id,
+            'title' => $title,
+            'created' => date('Y-m-d H:i:s'),
+            'updated' => date('Y-m-d H:i:s'),
+            'status' => 'idle',
+            'messages' => $history
+        ];
+        aimSaveConversation($conv);
+        // Create index
+        $idx = [['id'=>$id,'title'=>$title,'created'=>$conv['created'],'updated'=>$conv['updated'],'status'=>'idle','messageCount'=>count($history)]];
+        @file_put_contents($idxFile, json_encode($idx, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)."\n", LOCK_EX);
+        @chmod($idxFile, 0600);
+    } else {
+        // Create empty index
+        @file_put_contents($idxFile, "[]\n", LOCK_EX);
+        @chmod($idxFile, 0600);
+    }
+}
+function aimListConversations() {
+    aimEnsureConversationsMigrated();
+    $idxFile = aimGetConversationsIndexFile();
+    $raw = @file_get_contents($idxFile);
+    $list = json_decode($raw ?: '[]', true);
+    if (!is_array($list)) $list = [];
+    // Enrich with actual file existence and sort by updated desc
+    $out = [];
+    foreach ($list as $e) {
+        $id = $e['id'] ?? '';
+        if (!$id) continue;
+        $file = aimGetConversationsDir() . '/' . $id . '.json';
+        if (!file_exists($file)) continue;
+        $out[] = $e;
+    }
+    usort($out, function($a,$b){ return strcmp($b['updated'] ?? '', $a['updated'] ?? ''); });
+    return $out;
+}
+function aimGetConversation($id) {
+    aimEnsureConversationsMigrated();
+    $id = preg_replace('/[^a-zA-Z0-9_\-]/', '', $id);
+    if (!$id) return null;
+    $file = aimGetConversationsDir() . '/' . $id . '.json';
+    if (!file_exists($file)) return null;
+    $raw = @file_get_contents($file);
+    $data = json_decode($raw ?: '', true);
+    return is_array($data) ? $data : null;
+}
+function aimCreateConversation($title = null) {
+    aimEnsureConversationsMigrated();
+    $id = 'conv_' . substr(md5(uniqid('', true) . microtime()), 0, 12);
+    if (!$title || trim($title)==='') $title = 'Chat ' . date('Y-m-d H:i');
+    $title = mb_substr(trim($title), 0, 80);
+    $now = date('Y-m-d H:i:s');
+    $conv = ['id'=>$id,'title'=>$title,'created'=>$now,'updated'=>$now,'status'=>'idle','messages'=>[]];
+    aimSaveConversation($conv);
+    return $conv;
+}
+function aimSaveConversation($conv) {
+    $dir = aimGetConversationsDir();
+    if (!is_dir($dir)) @mkdir($dir, 0775, true);
+    $id = $conv['id'] ?? '';
+    if (!$id) return false;
+    $id = preg_replace('/[^a-zA-Z0-9_\-]/', '', $id);
+    $conv['id'] = $id;
+    $conv['updated'] = date('Y-m-d H:i:s');
+    $file = $dir . '/' . $id . '.json';
+    $ok = @file_put_contents($file, json_encode($conv, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)."\n", LOCK_EX);
+    if ($ok !== false) @chmod($file, 0600);
+    // Update index
+    $idxFile = aimGetConversationsIndexFile();
+    $list = aimListConversations();
+    // Remove existing entry for this id
+    $found = false;
+    foreach ($list as &$e) {
+        if (($e['id']??'') === $id) {
+            $e['title'] = $conv['title'] ?? $e['title'];
+            $e['updated'] = $conv['updated'];
+            $e['status'] = $conv['status'] ?? 'idle';
+            $e['messageCount'] = count($conv['messages'] ?? []);
+            $found = true;
+            break;
+        }
+    }
+    if (!$found) {
+        $list[] = ['id'=>$id,'title'=>$conv['title'],'created'=>$conv['created'],'updated'=>$conv['updated'],'status'=>$conv['status'] ?? 'idle','messageCount'=>count($conv['messages'] ?? [])];
+    }
+    // Keep sorted by updated desc
+    usort($list, function($a,$b){ return strcmp($b['updated'] ?? '', $a['updated'] ?? ''); });
+    @file_put_contents($idxFile, json_encode(array_values($list), JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)."\n", LOCK_EX);
+    @chmod($idxFile, 0600);
+    // Also update history file for backward compat (mirror active conversation)
+    // Keep history.json as last conversation's messages for legacy callers
+    $historyFile = aimGetHistoryFile();
+    if (is_dir(dirname($historyFile))) {
+        @file_put_contents($historyFile, json_encode($conv['messages'] ?? [], JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)."\n", LOCK_EX);
+        @chmod($historyFile, 0600);
+    }
+    return $ok !== false;
+}
+function aimDeleteConversation($id) {
+    $id = preg_replace('/[^a-zA-Z0-9_\-]/', '', $id);
+    $file = aimGetConversationsDir() . '/' . $id . '.json';
+    @unlink($file);
+    $idxFile = aimGetConversationsIndexFile();
+    $list = aimListConversations();
+    $list = array_values(array_filter($list, function($e) use ($id){ return ($e['id']??'') !== $id; }));
+    @file_put_contents($idxFile, json_encode($list, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)."\n", LOCK_EX);
+    @chmod($idxFile, 0600);
+    return true;
+}
+function aimGetOrCreateActiveConversation($preferredId = null) {
+    if ($preferredId) {
+        $c = aimGetConversation($preferredId);
+        if ($c) return $c;
+    }
+    $list = aimListConversations();
+    if (!empty($list)) {
+        $mostRecent = $list[0];
+        $c = aimGetConversation($mostRecent['id']);
+        if ($c) return $c;
+    }
+    return aimCreateConversation();
+}
+
 /* ── FPP context helpers ── */
 
 function aimFppGet($path, $timeout = 2) {
@@ -939,6 +1088,11 @@ function getEndpointsfppAImode() {
     $r[] = ['method'=>'POST', 'endpoint'=>'save', 'callback'=>'aimSaveEndpoint'];
     $r[] = ['method'=>'POST', 'endpoint'=>'test', 'callback'=>'aimTestEndpoint'];
     $r[] = ['method'=>'POST', 'endpoint'=>'chat', 'callback'=>'aimChatEndpoint'];
+    $r[] = ['method'=>'GET', 'endpoint'=>'conversations', 'callback'=>'aimConversationsListEndpoint'];
+    $r[] = ['method'=>'POST', 'endpoint'=>'conversations', 'callback'=>'aimConversationsCreateEndpoint'];
+    $r[] = ['method'=>'GET', 'endpoint'=>'conversations/:id', 'callback'=>'aimConversationGetEndpoint'];
+    $r[] = ['method'=>'DELETE', 'endpoint'=>'conversations/:id', 'callback'=>'aimConversationDeleteEndpoint'];
+    $r[] = ['method'=>'PUT', 'endpoint'=>'conversations/:id', 'callback'=>'aimConversationUpdateEndpoint'];
     $r[] = ['method'=>'GET', 'endpoint'=>'history', 'callback'=>'aimHistoryEndpoint'];
     $r[] = ['method'=>'POST', 'endpoint'=>'history/clear', 'callback'=>'aimHistoryClearEndpoint'];
     $r[] = ['method'=>'POST', 'endpoint'=>'execute', 'callback'=>'aimExecuteEndpoint'];
@@ -1098,12 +1252,21 @@ function aimTestEndpoint() {
 }
 
 function aimChatEndpoint() {
+    ignore_user_abort(true);
     set_time_limit(120);
     $raw = file_get_contents('php://input');
     $body = json_decode($raw ?: '{}', true);
     if (!is_array($body)) $body = [];
-    // Also merge $_POST
+    // Also merge $_POST and URL param
     $body = array_merge($_POST, $body);
+    // Support conversationId from body, query, or FPP param()
+    $conversationId = trim((string)($body['conversationId'] ?? $body['conversation_id'] ?? $body['conversation'] ?? ''));
+    if (!$conversationId) {
+        $paramId = null;
+        if (function_exists('param')) { $paramId = @param('conversationId', null); if (!$paramId) $paramId = @param('id', null); }
+        if ($paramId) $conversationId = trim((string)$paramId);
+    }
+    if (!$conversationId && isset($_GET['conversationId'])) $conversationId = trim((string)$_GET['conversationId']);
 
     $prompt = trim((string)($body['prompt'] ?? $body['message'] ?? ''));
     if ($prompt === '') return json(['success'=>false,'error'=>'Prompt is required']);
@@ -1115,24 +1278,38 @@ function aimChatEndpoint() {
     }
     if (empty($settings['model'])) return json(['success'=>false,'error'=>'Model not configured']);
 
-    // Build messages with history + system + fpp context
+    // Resolve conversation — multiple, background-aware (changing pages/refresh does not abort)
+    $conv = null;
+    if ($conversationId) $conv = aimGetConversation($conversationId);
+    if (!$conv) $conv = aimGetOrCreateActiveConversation($conversationId);
+    $conversationId = $conv['id'];
+    // Update title if this is first user message and title is generic
+    if (count($conv['messages'] ?? []) === 0 && (strpos($conv['title'] ?? '', 'Chat ') === 0 || ($conv['title'] ?? '') === 'Imported history')) {
+        $conv['title'] = mb_substr($prompt, 0, 50);
+        if (mb_strlen($prompt) > 50) $conv['title'] .= '…';
+    }
+    // Append user prompt to conversation and mark thinking
+    $conv['messages'][] = ['role'=>'user','content'=>$prompt,'ts'=>date('Y-m-d H:i:s')];
+    $conv['status'] = 'thinking';
+    $conv['updated'] = date('Y-m-d H:i:s');
+    aimSaveConversation($conv);
+
+    // Build LLM messages with system + FPP context + conversation history (last 12)
     $system = aimBuildSystemPrompt($settings);
     $messages = [['role'=>'system','content'=>$system]];
-
-    // Optionally inject FPP context as second system-adjacent user block to keep model grounded
     if (!empty($settings['include_fpp_context'])) {
         $ctx = aimGetFppContext(false);
         $messages[] = ['role'=>'user','content'=>"FPP LIVE CONTEXT (do not repeat verbatim, use for tool calls):\n" . $ctx];
         $messages[] = ['role'=>'assistant','content'=>'Understood. I will use get_/list_ tools to verify before making changes and explain each action.'];
     }
-
-    // Append history (user/assistant only, last 12 turns)
-    $history = aimLoadHistory();
-    $histSlice = array_slice($history, -12);
-    foreach ($histSlice as $h) {
+    $histSlice = array_slice($conv['messages'] ?? [], -13, -1); // last 12 before current prompt (current already in conv but we add prompt explicitly above, so -13,-1 gives 12 prior)
+    // Alternatively, use conversation messages excluding the just-added prompt (we add prompt again below)
+    // Simpler: use all messages except last (the prompt we just added) as history
+    $historyForLLM = array_slice($conv['messages'], 0, -1);
+    $historyForLLM = array_slice($historyForLLM, -12);
+    foreach ($historyForLLM as $h) {
         if (!isset($h['role']) || !isset($h['content'])) continue;
         if ($h['role'] === 'system') continue;
-        // Avoid injecting tool_call artifacts as plain history if they were stored as user/assistant; keep simple
         if (in_array($h['role'], ['user','assistant'])) {
             $messages[] = ['role'=>$h['role'],'content'=>$h['content']];
         }
@@ -1141,7 +1318,8 @@ function aimChatEndpoint() {
 
     $tools = aimGetTools();
 
-    aimLog('Chat prompt provider=' . $settings['provider'] . ' model=' . $settings['model'] . ' len=' . strlen($prompt));
+    aimLog('Chat prompt conv=' . $conversationId . ' provider=' . $settings['provider'] . ' model=' . $settings['model'] . ' len=' . strlen($prompt));
+    // Also mirror to legacy history for backward compat
     aimAppendHistory('user', $prompt);
 
     $isDryRun = !empty($settings['dry_run']);
@@ -1159,7 +1337,14 @@ function aimChatEndpoint() {
         $res = aimCallProvider($settings, $currentMessages, $tools, 40);
         if (!$res['success']) {
             aimLog('Chat failed iter ' . $iteration . ': ' . $res['error']);
-            if ($iteration === 0) return json(['success'=>false,'error'=>$res['error']]);
+            if ($iteration === 0) {
+                // Mark conversation idle and persist error for polling clients
+                $conv['status'] = 'idle';
+                $conv['updated'] = date('Y-m-d H:i:s');
+                $conv['messages'][] = ['role'=>'assistant','content'=>'Error: ' . $res['error'],'ts'=>date('Y-m-d H:i:s'),'meta'=>['error'=>$res['error']]];
+                aimSaveConversation($conv);
+                return json(['success'=>false,'error'=>$res['error'],'conversationId'=>$conversationId,'conversation'=>$conv]);
+            }
             // On later iteration, return what we have with error appended
             $finalReply .= "\n\n[Error on follow-up: " . $res['error'] . "]";
             break;
@@ -1177,10 +1362,14 @@ function aimChatEndpoint() {
         if (empty($toolCalls)) {
             break;
         }
-        // Dry run or manual approval — stop and let UI handle
+        // Dry run or manual approval — stop and let UI handle (background-safe)
         if ($isDryRun || !$autoApprove) {
-            // Append this assistant turn to history and return tool calls for UI approval
             aimAppendHistory('assistant', $reply, ['tool_calls'=>$toolCalls, 'provider'=>$finalProvider, 'model'=>$finalModel]);
+            // Update conversation and mark idle (awaiting manual approval)
+            $conv['messages'][] = ['role'=>'assistant','content'=>$reply,'ts'=>date('Y-m-d H:i:s'),'meta'=>['tool_calls'=>$toolCalls,'provider'=>$finalProvider,'model'=>$finalModel]];
+            $conv['status'] = 'idle';
+            $conv['updated'] = date('Y-m-d H:i:s');
+            aimSaveConversation($conv);
             return json([
                 'success'=>true,
                 'reply'=>$reply,
@@ -1190,6 +1379,8 @@ function aimChatEndpoint() {
                 'auto_approve'=>$autoApprove,
                 'provider'=>$finalProvider,
                 'model'=>$finalModel,
+                'conversationId'=>$conversationId,
+                'conversation'=>$conv,
             ]);
         }
         // Auto-execute all tool calls and feed results back for next iteration
@@ -1226,10 +1417,19 @@ function aimChatEndpoint() {
         }
     }
 
-    // Append final assistant reply to history
+    // Append final assistant reply to history and conversation (background-safe)
     aimAppendHistory('assistant', $finalReply, ['tool_calls'=>$allToolCalls, 'provider'=>$finalProvider, 'model'=>$finalModel]);
+    // Update conversation: append assistant message, mark idle, persist
+    $conv['messages'][] = ['role'=>'assistant','content'=>$finalReply,'ts'=>date('Y-m-d H:i:s'),'meta'=>['tool_calls'=>$allToolCalls,'executed'=>$allExecuted,'provider'=>$finalProvider,'model'=>$finalModel]];
+    $conv['status'] = 'idle';
+    $conv['updated'] = date('Y-m-d H:i:s');
+    // Update title if still generic and we have a good final reply
+    if ((strpos($conv['title'] ?? '', 'Chat ') === 0) && !empty($finalReply)) {
+        // Keep original title from prompt, not overwrite
+    }
+    aimSaveConversation($conv);
 
-    aimLog('Chat final reply len=' . strlen($finalReply) . ' total tools=' . count($allToolCalls) . ' executed=' . count($allExecuted));
+    aimLog('Chat final reply conv=' . $conversationId . ' len=' . strlen($finalReply) . ' total tools=' . count($allToolCalls) . ' executed=' . count($allExecuted));
 
     return json([
         'success'=>true,
@@ -1240,6 +1440,8 @@ function aimChatEndpoint() {
         'auto_approve'=>$autoApprove,
         'provider'=>$finalProvider,
         'model'=>$finalModel,
+        'conversationId'=>$conversationId,
+        'conversation'=>$conv,
     ]);
 }
 
@@ -1252,6 +1454,59 @@ function aimHistoryClearEndpoint() {
     aimClearHistory();
     aimLog('History cleared');
     return json(['success'=>true,'message'=>'History cleared']);
+}
+
+function aimConversationsListEndpoint() {
+    $list = aimListConversations();
+    return json(['success'=>true,'conversations'=>$list]);
+}
+function aimConversationsCreateEndpoint() {
+    $raw = file_get_contents('php://input');
+    $body = json_decode($raw ?: '{}', true);
+    if (!is_array($body)) $body = [];
+    $body = array_merge($_POST, $body);
+    $title = trim((string)($body['title'] ?? ''));
+    $conv = aimCreateConversation($title);
+    return json(['success'=>true,'conversation'=>$conv]);
+}
+function aimConversationGetEndpoint() {
+    $id = param('id', null);
+    if (!$id) {
+        $raw = file_get_contents('php://input');
+        $b = json_decode($raw ?: '{}', true);
+        $id = $b['id'] ?? $_GET['id'] ?? null;
+    }
+    if (!$id) return json(['success'=>false,'error'=>'Conversation id required']);
+    $conv = aimGetConversation($id);
+    if (!$conv) return json(['success'=>false,'error'=>'Conversation not found']);
+    return json(['success'=>true,'conversation'=>$conv]);
+}
+function aimConversationDeleteEndpoint() {
+    $id = param('id', null);
+    if (!$id) {
+        $raw = file_get_contents('php://input');
+        $b = json_decode($raw ?: '{}', true);
+        $id = $b['id'] ?? $_POST['id'] ?? null;
+    }
+    if (!$id) return json(['success'=>false,'error'=>'Conversation id required']);
+    aimDeleteConversation($id);
+    return json(['success'=>true,'message'=>'Conversation deleted']);
+}
+function aimConversationUpdateEndpoint() {
+    $id = param('id', null);
+    $raw = file_get_contents('php://input');
+    $body = json_decode($raw ?: '{}', true);
+    if (!is_array($body)) $body = [];
+    $body = array_merge($_POST, $body);
+    if (!$id) $id = $body['id'] ?? null;
+    if (!$id) return json(['success'=>false,'error'=>'Conversation id required']);
+    $conv = aimGetConversation($id);
+    if (!$conv) return json(['success'=>false,'error'=>'Conversation not found']);
+    if (isset($body['title'])) $conv['title'] = mb_substr(trim($body['title']), 0, 80);
+    // Allow status update if caller is internal (not exposed to UI normally)
+    if (isset($body['status'])) $conv['status'] = $body['status'];
+    aimSaveConversation($conv);
+    return json(['success'=>true,'conversation'=>$conv]);
 }
 
 function aimExecuteEndpoint() {

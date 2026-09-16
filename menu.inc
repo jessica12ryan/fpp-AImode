@@ -13,13 +13,13 @@ $menuEntries = Array(
     Array(
         'text' => '<img src="' . $aimIconUrl . '" width="16" height="16" class="align-middle me-1"> AI Mode',
         'type' => 'content',
-        'page' => 'assistant.php',
+        'page' => 'config.php',
         'wrap' => 1
     ),
     Array(
         'text' => '<img src="' . $aimIconUrl . '" width="16" height="16" class="align-middle me-1"> AI Mode',
         'type' => 'status',
-        'page' => 'status.php',
+        'page' => 'assistant.php',
         'wrap' => 1
     ),
     Array(
