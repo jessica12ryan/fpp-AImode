@@ -122,10 +122,12 @@ function aimProviderExists($provider) {
 
 function aimDefaultSettings() {
     return [
-        'provider' => 'openai',
+        'provider' => 'openai', // legacy single-provider compat
         'api_key' => '',
         'model' => 'gpt-4o-mini',
         'base_url' => '',
+        'providers' => [], // per-provider configs: provider => [api_key, model, base_url]
+        'defaultProvider' => 'openai',
         'system_prompt' => '',
         'temperature' => 0.7,
         'max_tokens' => AIM_MAX_TOKENS_DEFAULT,
@@ -133,6 +135,69 @@ function aimDefaultSettings() {
         'dry_run' => 0,
         'include_fpp_context' => 1,
         'history_enabled' => 1,
+    ];
+}
+function aimMigrateSingleToProviders(&$s) {
+    // Migrate legacy top-level provider/api_key/model/base_url into providers map if needed
+    $provider = $s['provider'] ?? 'openai';
+    $apiKey = $s['api_key'] ?? '';
+    $model = $s['model'] ?? '';
+    $base = $s['base_url'] ?? '';
+    if (!isset($s['providers']) || !is_array($s['providers'])) $s['providers'] = [];
+    if (!isset($s['defaultProvider']) || !$s['defaultProvider']) $s['defaultProvider'] = $provider;
+    // If legacy has key/model and providers[provider] is empty, seed it
+    if (($apiKey !== '' || $model !== '' || $base !== '') && empty($s['providers'][$provider])) {
+        $s['providers'][$provider] = ['api_key'=>$apiKey,'model'=>$model,'base_url'=>$base];
+    }
+    // Ensure every known provider has an entry (at least empty) for UI convenience
+    foreach (array_keys(aimGetProviders()) as $k) {
+        if (!isset($s['providers'][$k]) || !is_array($s['providers'][$k])) {
+            $def = aimGetProviders()[$k];
+            $s['providers'][$k] = ['api_key'=>'','model'=>$def['defaultModel'] ?? '','base_url'=>''];
+        } else {
+            // Ensure keys exist
+            if (!isset($s['providers'][$k]['api_key'])) $s['providers'][$k]['api_key'] = '';
+            if (!isset($s['providers'][$k]['model'])) $s['providers'][$k]['model'] = aimGetProviders()[$k]['defaultModel'] ?? '';
+            if (!isset($s['providers'][$k]['base_url'])) $s['providers'][$k]['base_url'] = '';
+        }
+    }
+    // Keep legacy top-level in sync with defaultProvider for backward compat
+    $defProv = $s['defaultProvider'] ?? $provider;
+    if (isset($s['providers'][$defProv])) {
+        $s['provider'] = $defProv;
+        $s['api_key'] = $s['providers'][$defProv]['api_key'] ?? '';
+        $s['model'] = $s['providers'][$defProv]['model'] ?? '';
+        $s['base_url'] = $s['providers'][$defProv]['base_url'] ?? '';
+    }
+}
+function aimGetProviderConfig($settings, $provider = null) {
+    if (!$provider) $provider = $settings['defaultProvider'] ?? $settings['provider'] ?? 'openai';
+    $provider = strtolower($provider);
+    if (isset($settings['providers'][$provider]) && is_array($settings['providers'][$provider])) {
+        $c = $settings['providers'][$provider];
+        return [
+            'provider'=>$provider,
+            'api_key'=>trim((string)($c['api_key'] ?? '')),
+            'model'=>trim((string)($c['model'] ?? '')),
+            'base_url'=>rtrim(trim((string)($c['base_url'] ?? '')), '/')
+        ];
+    }
+    // Fallback to legacy top-level if provider matches legacy provider
+    $legacyProv = $settings['provider'] ?? 'openai';
+    if ($provider === $legacyProv) {
+        return [
+            'provider'=>$provider,
+            'api_key'=>trim((string)($settings['api_key'] ?? '')),
+            'model'=>trim((string)($settings['model'] ?? '')),
+            'base_url'=>rtrim(trim((string)($settings['base_url'] ?? '')), '/')
+        ];
+    }
+    $def = aimGetProviders()[$provider] ?? null;
+    return [
+        'provider'=>$provider,
+        'api_key'=>'',
+        'model'=>$def['defaultModel'] ?? '',
+        'base_url'=>''
     ];
 }
 
@@ -182,40 +247,82 @@ function aimLoadSettings() {
     $defaults = aimDefaultSettings();
     $file = aimGetSettingsFile();
     if (!file_exists($file)) {
-        // Fallback: also check legacy direct if migration didn't run (e.g. permissions)
         $legacy = aimGetLegacySettingsFile();
         if (file_exists($legacy)) $file = $legacy;
-        else return $defaults;
+        else {
+            $d = $defaults;
+            aimMigrateSingleToProviders($d);
+            return $d;
+        }
     }
     $raw = @file_get_contents($file);
     if ($raw === false || trim($raw) === '') {
-        return $defaults;
+        $d = $defaults;
+        aimMigrateSingleToProviders($d);
+        return $d;
     }
     $s = json_decode($raw, true);
     if (!is_array($s)) {
         aimLog('WARNING settings.json corrupt, using defaults');
-        return $defaults;
+        $d = $defaults;
+        aimMigrateSingleToProviders($d);
+        return $d;
     }
     $merged = array_merge($defaults, $s);
+    // Ensure providers map exists and is migrated
+    aimMigrateSingleToProviders($merged);
     // Clamp
     $merged['temperature'] = max(0, min(2, (float)$merged['temperature']));
     $merged['max_tokens'] = max(64, min(16384, (int)$merged['max_tokens']));
     if (!aimProviderExists($merged['provider'])) {
         $merged['provider'] = 'openai';
     }
+    if (!aimProviderExists($merged['defaultProvider'] ?? '')) {
+        $merged['defaultProvider'] = $merged['provider'];
+    }
     return $merged;
 }
 
 function aimSaveSettings($arr) {
     $defaults = aimDefaultSettings();
-    $data = array_merge($defaults, $arr);
-    // Sanitize — key name contains Key so crash bundler redacts if ever under config (but we store in plugindata anyway per §14.11)
-    $data['provider'] = preg_replace('/[^a-z_]/', '', strtolower($data['provider'] ?? 'openai'));
+    // Merge with defaults, but handle providers map specially to preserve per-provider configs
+    $data = $arr;
+    // If incoming has providers map, merge it deeply
+    if (isset($arr['providers']) && is_array($arr['providers'])) {
+        $data['providers'] = $arr['providers'];
+        // Sanitize each provider entry
+        foreach ($data['providers'] as $k => &$v) {
+            $k2 = preg_replace('/[^a-z_]/', '', strtolower($k));
+            if (!aimProviderExists($k2)) continue;
+            $v['api_key'] = trim((string)($v['api_key'] ?? ''));
+            $v['model'] = trim((string)($v['model'] ?? ''));
+            if ($v['model'] === '') $v['model'] = aimGetProviders()[$k2]['defaultModel'] ?? '';
+            $v['base_url'] = rtrim(trim((string)($v['base_url'] ?? '')), '/');
+        }
+    }
+    $data = array_merge($defaults, $data);
+    // Ensure providers map is migrated/sanitized
+    aimMigrateSingleToProviders($data);
+    // Sanitize top-level provider/defaultProvider and sync legacy fields
+    $data['provider'] = preg_replace('/[^a-z_]/', '', strtolower($data['provider'] ?? $data['defaultProvider'] ?? 'openai'));
+    $data['defaultProvider'] = preg_replace('/[^a-z_]/', '', strtolower($data['defaultProvider'] ?? $data['provider'] ?? 'openai'));
     if (!aimProviderExists($data['provider'])) $data['provider'] = 'openai';
-    $data['api_key'] = trim((string)($data['api_key'] ?? ''));
-    $data['model'] = trim((string)($data['model'] ?? $defaults['model']));
-    if ($data['model'] === '') $data['model'] = aimGetProviders()[$data['provider']]['defaultModel'];
-    $data['base_url'] = rtrim(trim((string)($data['base_url'] ?? '')), '/');
+    if (!aimProviderExists($data['defaultProvider'])) $data['defaultProvider'] = $data['provider'];
+    // Sync legacy top-level from default provider's config
+    $defProv = $data['defaultProvider'];
+    if (isset($data['providers'][$defProv])) {
+        // If incoming top-level api_key/model/base_url are explicitly set, treat them as update for default provider
+        $hasExplicitTop = isset($arr['api_key']) || isset($arr['model']) || isset($arr['base_url']);
+        if ($hasExplicitTop) {
+            if (isset($arr['api_key'])) $data['providers'][$defProv]['api_key'] = trim((string)$arr['api_key']);
+            if (isset($arr['model'])) $data['providers'][$defProv]['model'] = trim((string)$arr['model']);
+            if (isset($arr['base_url'])) $data['providers'][$defProv]['base_url'] = rtrim(trim((string)$arr['base_url']), '/');
+            if ($data['providers'][$defProv]['model'] === '') $data['providers'][$defProv]['model'] = aimGetProviders()[$defProv]['defaultModel'] ?? '';
+        }
+        $data['api_key'] = $data['providers'][$defProv]['api_key'] ?? '';
+        $data['model'] = $data['providers'][$defProv]['model'] ?? '';
+        $data['base_url'] = $data['providers'][$defProv]['base_url'] ?? '';
+    }
     $data['system_prompt'] = (string)($data['system_prompt'] ?? '');
     $data['temperature'] = max(0, min(2, (float)($data['temperature'] ?? 0.7)));
     $data['max_tokens'] = max(64, min(16384, (int)($data['max_tokens'] ?? AIM_MAX_TOKENS_DEFAULT)));
@@ -276,11 +383,12 @@ function aimSaveSettings($arr) {
     return $ok !== false;
 }
 
-function aimEffectiveBaseUrl($settings) {
-    $provider = $settings['provider'] ?? 'openai';
+function aimEffectiveBaseUrl($settings, $provider = null) {
+    if (!$provider) $provider = $settings['defaultProvider'] ?? $settings['provider'] ?? 'openai';
     $providers = aimGetProviders();
     $default = $providers[$provider]['defaultBase'] ?? '';
-    $custom = trim($settings['base_url'] ?? '');
+    $cfg = aimGetProviderConfig($settings, $provider);
+    $custom = trim($cfg['base_url'] ?? '');
     return $custom !== '' ? $custom : $default;
 }
 
@@ -1144,19 +1252,27 @@ function aimIconEndpoint() {
 
 function aimStatusEndpoint() {
     $settings = aimLoadSettings();
-    // Redact key in response
+    // Redact keys in response
     $safe = $settings;
     $safe['api_key'] = $safe['api_key'] ? '***' . substr($safe['api_key'], -4) : '';
+    if (isset($safe['providers']) && is_array($safe['providers'])) {
+        foreach ($safe['providers'] as $k=>&$v) {
+            if (isset($v['api_key']) && $v['api_key'] !== '') $v['api_key'] = '***' . substr($v['api_key'], -4);
+        }
+    }
     $providers = aimGetProviders();
-    $base = aimEffectiveBaseUrl($settings);
+    $defProv = $settings['defaultProvider'] ?? $settings['provider'] ?? 'openai';
+    $base = aimEffectiveBaseUrl($settings, $defProv);
     $fppStatus = aimFppGet('/api/fppd/status', 2);
     $history = aimLoadHistory();
     return json([
         'success'=>true,
         'settings'=>$safe,
         'raw_settings_keys'=> array_keys($settings),
-        'provider_meta'=> $providers[$settings['provider']] ?? null,
+        'provider_meta'=> $providers[$defProv] ?? null,
         'effective_base_url'=> $base,
+        'defaultProvider'=>$defProv,
+        'providers'=>$safe['providers'] ?? [],
         'fpp_status'=> $fppStatus,
         'fpp_reachable'=> $fppStatus !== null,
         'history_count'=> count($history),
@@ -1315,10 +1431,15 @@ function aimModelsEndpoint() {
     if (!is_array($body)) $body = [];
     $body = array_merge($_POST, $body);
     $settings = aimLoadSettings();
-    $provider = trim((string)($body['provider'] ?? $settings['provider'] ?? ''));
-    $apiKey = trim((string)($body['api_key'] ?? $body['apiKey'] ?? $settings['api_key'] ?? ''));
-    $baseUrl = trim((string)($body['base_url'] ?? $body['baseUrl'] ?? $settings['base_url'] ?? ''));
-    // Allow explicit base_url from body, else use effective
+    $provider = trim((string)($body['provider'] ?? $settings['defaultProvider'] ?? $settings['provider'] ?? ''));
+    // Try to get api_key/base_url from providers map if not explicitly passed
+    $apiKey = trim((string)($body['api_key'] ?? $body['apiKey'] ?? ''));
+    $baseUrl = trim((string)($body['base_url'] ?? $body['baseUrl'] ?? ''));
+    if ($apiKey === '' || $baseUrl === '') {
+        $cfg = aimGetProviderConfig($settings, $provider);
+        if ($apiKey === '') $apiKey = $cfg['api_key'] ?? '';
+        if ($baseUrl === '') $baseUrl = $cfg['base_url'] ?? '';
+    }
     if (!$provider) return json(['success'=>false,'error'=>'Provider required']);
     $res = aimFetchProviderModels($provider, $apiKey, $baseUrl);
     if (!$res['success']) {
@@ -1360,11 +1481,36 @@ function aimTestEndpoint() {
     $body = $_POST;
     $raw = file_get_contents('php://input');
     if (!empty($raw)) { $j = json_decode($raw, true); if (is_array($j)) $body = array_merge($body, $j); }
-    // Allow override via body else use saved
     $settings = aimLoadSettings();
-    foreach (['provider','api_key','model','base_url','temperature','max_tokens'] as $k) {
-        if (isset($body[$k]) && $body[$k] !== '') $settings[$k] = $body[$k];
+    // Allow override via body — support both single-provider and multi-provider payloads
+    $testProvider = trim((string)($body['provider'] ?? $settings['defaultProvider'] ?? $settings['provider'] ?? 'openai'));
+    if (isset($body['providers']) && is_array($body['providers']) && isset($body['providers'][$testProvider])) {
+        // Body contains full providers map — use it
+        $settings['providers'] = $body['providers'];
+        $settings['defaultProvider'] = $testProvider;
+        $settings['provider'] = $testProvider;
+        aimMigrateSingleToProviders($settings);
+    } else {
+        // Single-provider override (legacy or direct test)
+        foreach (['provider','api_key','model','base_url','temperature','max_tokens'] as $k) {
+            if (isset($body[$k]) && $body[$k] !== '') $settings[$k] = $body[$k];
+        }
+        // If testing a specific provider, ensure its entry in providers map is updated
+        if (isset($body['provider']) && isset($body['api_key'])) {
+            $settings['providers'][$testProvider]['api_key'] = $body['api_key'];
+        }
+        if (isset($body['model'])) $settings['providers'][$testProvider]['model'] = $body['model'];
+        if (isset($body['base_url'])) $settings['providers'][$testProvider]['base_url'] = $body['base_url'];
+        $settings['defaultProvider'] = $testProvider;
+        $settings['provider'] = $testProvider;
+        aimMigrateSingleToProviders($settings);
     }
+    // Resolve effective config for test provider
+    $effective = aimGetProviderConfig($settings, $testProvider);
+    $settings['provider'] = $effective['provider'];
+    $settings['api_key'] = $effective['api_key'];
+    $settings['model'] = $effective['model'];
+    $settings['base_url'] = $effective['base_url'];
     // Build minimal test message
     $messages = [['role'=>'user','content'=>'Reply with exactly: OK']];
     $tools = []; // no tools for test
@@ -1404,11 +1550,30 @@ function aimChatEndpoint() {
     if ($prompt === '') return json(['success'=>false,'error'=>'Prompt is required']);
 
     $settings = aimLoadSettings();
-    // Validate
-    if ($settings['provider'] !== 'ollama' && empty($settings['api_key'])) {
-        return json(['success'=>false,'error'=>'API key not configured. Go to Config and add your provider key.']);
+    // Resolve default provider config — new conversations automatically use defaultProvider
+    $defProvider = $settings['defaultProvider'] ?? $settings['provider'] ?? 'openai';
+    $effective = aimGetProviderConfig($settings, $defProvider);
+    // Allow per-request override of provider/model (for testing or per-conversation provider switch)
+    $reqProvider = trim((string)($body['provider'] ?? ''));
+    if ($reqProvider && aimProviderExists($reqProvider)) {
+        $defProvider = $reqProvider;
+        $effective = aimGetProviderConfig($settings, $defProvider);
+        if (isset($body['api_key']) && $body['api_key'] !== '') $effective['api_key'] = trim((string)$body['api_key']);
+        if (isset($body['model']) && $body['model'] !== '') $effective['model'] = trim((string)$body['model']);
+        if (isset($body['base_url']) && $body['base_url'] !== '') $effective['base_url'] = trim((string)$body['base_url']);
     }
-    if (empty($settings['model'])) return json(['success'=>false,'error'=>'Model not configured']);
+    // Merge effective into settings copy for provider calls
+    $effSettings = $settings;
+    $effSettings['provider'] = $effective['provider'];
+    $effSettings['api_key'] = $effective['api_key'];
+    $effSettings['model'] = $effective['model'];
+    $effSettings['base_url'] = $effective['base_url'];
+    $effSettings['defaultProvider'] = $defProvider;
+    // Validate effective
+    if ($effSettings['provider'] !== 'ollama' && empty($effSettings['api_key'])) {
+        return json(['success'=>false,'error'=>'API key not configured for default provider ' . $defProvider . '. Go to Config and add it.']);
+    }
+    if (empty($effSettings['model'])) return json(['success'=>false,'error'=>'Model not configured for default provider ' . $defProvider]);
 
     // Resolve conversation — multiple, background-aware (changing pages/refresh does not abort)
     $conv = null;
@@ -1450,7 +1615,7 @@ function aimChatEndpoint() {
 
     $tools = aimGetTools();
 
-    aimLog('Chat prompt conv=' . $conversationId . ' provider=' . $settings['provider'] . ' model=' . $settings['model'] . ' len=' . strlen($prompt));
+    aimLog('Chat prompt conv=' . $conversationId . ' provider=' . $effSettings['provider'] . ' model=' . $effSettings['model'] . ' len=' . strlen($prompt) . ' default=' . $defProvider);
     // Also mirror to legacy history for backward compat
     aimAppendHistory('user', $prompt);
 
@@ -1466,7 +1631,7 @@ function aimChatEndpoint() {
     $iteration = 0;
 
     while ($iteration < $maxIterations) {
-        $res = aimCallProvider($settings, $currentMessages, $tools, 40);
+        $res = aimCallProvider($effSettings, $currentMessages, $tools, 40);
         if (!$res['success']) {
             aimLog('Chat failed iter ' . $iteration . ': ' . $res['error']);
             if ($iteration === 0) {
