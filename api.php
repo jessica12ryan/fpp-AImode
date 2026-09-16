@@ -344,8 +344,8 @@ function aimEnsureConversationsMigrated() {
         // Try to derive title from first user message
         foreach ($history as $m) {
             if (($m['role'] ?? '') === 'user' && !empty($m['content'])) {
-                $title = mb_substr(trim($m['content']), 0, 40);
-                if (mb_strlen(trim($m['content'])) > 40) $title .= '…';
+                $title = (function_exists('mb_substr') ? mb_substr(trim($m['content']), 0, 40) : substr(trim($m['content']), 0, 40));
+                if ((function_exists('mb_strlen') ? mb_strlen(trim($m['content'])) : strlen(trim($m['content']))) > 40) $title .= '…';
                 break;
             }
         }
@@ -400,7 +400,7 @@ function aimCreateConversation($title = null) {
     aimEnsureConversationsMigrated();
     $id = 'conv_' . substr(md5(uniqid('', true) . microtime()), 0, 12);
     if (!$title || trim($title)==='') $title = 'Chat ' . date('Y-m-d H:i');
-    $title = mb_substr(trim($title), 0, 80);
+    $title = (function_exists('mb_substr') ? mb_substr(trim($title), 0, 80) : substr(trim($title), 0, 80));
     $now = date('Y-m-d H:i:s');
     $conv = ['id'=>$id,'title'=>$title,'created'=>$now,'updated'=>$now,'status'=>'idle','messages'=>[]];
     aimSaveConversation($conv);
@@ -1288,8 +1288,8 @@ function aimChatEndpoint() {
     $conversationId = $conv['id'];
     // Update title if this is first user message and title is generic
     if (count($conv['messages'] ?? []) === 0 && (strpos($conv['title'] ?? '', 'Chat ') === 0 || ($conv['title'] ?? '') === 'Imported history')) {
-        $conv['title'] = mb_substr($prompt, 0, 50);
-        if (mb_strlen($prompt) > 50) $conv['title'] .= '…';
+        $conv['title'] = (function_exists('mb_substr') ? mb_substr($prompt, 0, 50) : substr($prompt, 0, 50));
+        if ((function_exists('mb_strlen') ? mb_strlen($prompt) : strlen($prompt)) > 50) $conv['title'] .= '…';
     }
     // Append user prompt to conversation and mark thinking
     $conv['messages'][] = ['role'=>'user','content'=>$prompt,'ts'=>date('Y-m-d H:i:s')];
@@ -1505,7 +1505,7 @@ function aimConversationUpdateEndpoint() {
     if (!$id) return json(['success'=>false,'error'=>'Conversation id required']);
     $conv = aimGetConversation($id);
     if (!$conv) return json(['success'=>false,'error'=>'Conversation not found']);
-    if (isset($body['title'])) $conv['title'] = mb_substr(trim($body['title']), 0, 80);
+    if (isset($body['title'])) $conv['title'] = (function_exists('mb_substr') ? mb_substr(trim($body['title']), 0, 80) : substr(trim($body['title']), 0, 80));
     // Allow status update if caller is internal (not exposed to UI normally)
     if (isset($body['status'])) $conv['status'] = $body['status'];
     aimSaveConversation($conv);
