@@ -40,9 +40,12 @@ if [ -f "${PLUGIN_DIR}/config/history.json" ] && [ ! -f "${PLUGINDATA}/history.j
     chmod 600 "${PLUGINDATA}/history.json" 2>/dev/null || true
 fi
 
-# Ensure perms are correct (idempotent) — never 0777
+# Ensure perms are correct (idempotent) — never 0777; ensure FPPD (fpp user) can read
+chown -R fpp:fpp "${PLUGIN_DIR}" 2>/dev/null || true
 chmod 775 "${PLUGIN_DIR}" 2>/dev/null || true
-if [ -d "${PLUGIN_DIR}/config" ]; then chmod 775 "${PLUGIN_DIR}/config" 2>/dev/null || true; fi
+if [ -d "${PLUGIN_DIR}/config" ]; then chmod 775 "${PLUGIN_DIR}/config" 2>/dev/null || true; chown fpp:fpp "${PLUGIN_DIR}/config" 2>/dev/null || true; fi
+# Ensure conversations dir also owned correctly if it exists
+if [ -d "${PLUGINDATA}/conversations" ]; then chown -R fpp:fpp "${PLUGINDATA}/conversations" 2>/dev/null || true; chmod 775 "${PLUGINDATA}/conversations" 2>/dev/null || true; fi
 if [ -f "${PLUGINDATA}/settings.json" ]; then chmod 600 "${PLUGINDATA}/settings.json" 2>/dev/null || true; chown fpp:fpp "${PLUGINDATA}/settings.json" 2>/dev/null || true; fi
 if [ -f "${PLUGINDATA}/history.json" ]; then chmod 600 "${PLUGINDATA}/history.json" 2>/dev/null || true; chown fpp:fpp "${PLUGINDATA}/history.json" 2>/dev/null || true; fi
 # Legacy files if still present — tighten but don't delete on install (migration keeps them until save)
