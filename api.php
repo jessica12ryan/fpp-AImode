@@ -66,8 +66,8 @@ function aimGetProviders() {
         'google' => [
             'label' => 'Google Gemini',
             'defaultBase' => 'https://generativelanguage.googleapis.com',
-            'defaultModel' => 'gemini-2.0-flash',
-            'models' => ['gemini-2.0-flash','gemini-2.0-flash-001','gemini-1.5-flash','gemini-1.5-pro','gemini-2.0-pro','gemini-1.0-pro'],
+            'defaultModel' => 'gemini-2.5-flash',
+            'models' => ['gemini-2.5-flash','gemini-2.5-pro','gemini-2.0-flash','gemini-2.0-flash-001','gemini-1.5-flash','gemini-1.5-pro','gemini-1.0-pro'],
             'auth' => 'query',
             'needsKey' => true,
         ],
@@ -583,7 +583,7 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
     if ($model === '') $model = $meta['defaultModel'];
     // Provider/model sanity check — give friendly error before HTTP 404
     if ($provider === 'google' && stripos($model, 'gemini') === false && stripos($model, 'gemma') === false && stripos($model, 'learnlm') === false) {
-        return ['success'=>false,'error'=>'Model "' . $model . '" not valid for Google Gemini. Use gemini-1.5-flash, gemini-1.5-pro, gemini-2.0-flash, etc. — current provider is google'];
+        return ['success'=>false,'error'=>'Model "' . $model . '" not valid for Google Gemini. Use gemini-2.5-flash, gemini-2.5-pro, gemini-2.0-flash, etc. — current provider is google. List: https://ai.google.dev/gemini-api/docs/models/gemini'];
     }
     if ($provider === 'openai' && stripos($model, 'gemini') === 0) {
         return ['success'=>false,'error'=>'Model "' . $model . '" is a Gemini model, not valid for OpenAI provider. Switch provider to Google or choose a gpt-*/o1* model.'];
@@ -731,9 +731,20 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
     if ($code < 200 || $code >= 300) {
         $snippet = substr($resp ?: '', 0, 800);
         $hint = '';
-        // Friendly hints for common model mismatches
+        // Friendly hints — Google deprecates older gemini versions quickly; surface the suggested replacement if present
         if ($code === 404 && $provider === 'google' && stripos($snippet, 'models/') !== false) {
-            $hint = ' — Model "' . $model . '" not valid for Google Gemini. Use a Gemini model like gemini-1.5-flash, gemini-1.5-pro, or gemini-2.0-flash. List: https://ai.google.dev/gemini-api/docs/models/gemini';
+            if (preg_match('/models\/([a-z0-9._\-]+)/i', $snippet, $m) && stripos($snippet, 'Please update') !== false) {
+                // Extract the API's suggested replacement (e.g. models/gemini-3.6-flash)
+                preg_match('/use models\/([a-z0-9._\-]+)/i', $snippet, $sug);
+                $suggested = $sug[1] ?? null;
+                if ($suggested) {
+                    $hint = ' — Model "' . $model . '" no longer available. Google suggests "' . $suggested . '". Update Config → Model to that (or check live list: https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_KEY)';
+                } else {
+                    $hint = ' — Model "' . $model . '" not available (deprecated). Check live models: https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_KEY — try gemini-2.5-flash or gemini-2.5-pro';
+                }
+            } else {
+                $hint = ' — Model "' . $model . '" not available (deprecated or wrong API version). Check live models: https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_KEY or docs https://ai.google.dev/gemini-api/docs/models/gemini — try gemini-2.5-flash or gemini-2.5-pro';
+            }
         } elseif ($code === 404 && stripos($snippet, 'model') !== false) {
             $hint = ' — Model "' . $model . '" not found for provider ' . $provider . '. Check Config → Model picker for valid models for this provider.';
         } elseif ($code === 401) {
