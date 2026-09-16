@@ -1088,6 +1088,7 @@ function getEndpointsfppAImode() {
     $r[] = ['method'=>'GET', 'endpoint'=>'status', 'callback'=>'aimStatusEndpoint'];
     $r[] = ['method'=>'GET', 'endpoint'=>'diagnostics', 'callback'=>'aimDiagnosticsEndpoint'];
     $r[] = ['method'=>'GET', 'endpoint'=>'tools', 'callback'=>'aimToolsEndpoint'];
+    $r[] = ['method'=>'POST', 'endpoint'=>'models', 'callback'=>'aimModelsEndpoint'];
     $r[] = ['method'=>'POST', 'endpoint'=>'save', 'callback'=>'aimSaveEndpoint'];
     $r[] = ['method'=>'POST', 'endpoint'=>'test', 'callback'=>'aimTestEndpoint'];
     $r[] = ['method'=>'POST', 'endpoint'=>'chat', 'callback'=>'aimChatEndpoint'];
@@ -1201,6 +1202,130 @@ function aimDiagnosticsEndpoint() {
 
 function aimToolsEndpoint() {
     return json(['success'=>true,'tools'=> aimGetTools()]);
+}
+
+function aimFetchProviderModels($provider, $apiKey, $baseUrl, $timeout = 12) {
+    $providers = aimGetProviders();
+    if (!isset($providers[$provider])) return ['success'=>false,'error'=>'Unknown provider: ' . $provider];
+    $meta = $providers[$provider];
+    if ($meta['needsKey'] && !$apiKey && $provider !== 'ollama') {
+        return ['success'=>false,'error'=>'API key required to list models for ' . $meta['label']];
+    }
+    $base = $baseUrl ? rtrim($baseUrl, '/') : rtrim($meta['defaultBase'], '/');
+    $url = '';
+    $headers = [];
+    if ($provider === 'openai' || $provider === 'mistral' || $provider === 'grok' || $provider === 'openrouter') {
+        $url = rtrim($base, '/') . '/models';
+        $headers = ['Authorization: Bearer ' . $apiKey];
+        if ($provider === 'openrouter') {
+            $headers[] = 'HTTP-Referer: https://github.com/jessica12ryan/fpp-AImode';
+            $headers[] = 'X-Title: FPP AI Mode';
+        }
+    } elseif ($provider === 'azure') {
+        // Azure: list deployments
+        $url = rtrim($base, '/') . '/openai/deployments?api-version=2024-02-15-preview';
+        $headers = ['api-key: ' . $apiKey];
+    } elseif ($provider === 'anthropic') {
+        $url = rtrim($base, '/') . '/v1/models';
+        $headers = ['x-api-key: ' . $apiKey, 'anthropic-version: 2023-06-01'];
+    } elseif ($provider === 'google') {
+        // Try v1beta first, then v1
+        $url = rtrim($base, '/') . '/v1beta/models?key=' . urlencode($apiKey);
+        $headers = [];
+    } elseif ($provider === 'ollama') {
+        $url = rtrim($base, '/') . '/api/tags';
+        $headers = [];
+    } else {
+        return ['success'=>false,'error'=>'List not implemented for provider: ' . $provider];
+    }
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+    if ($provider === 'ollama' && strpos($url, 'https://') !== 0) curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    $resp = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch);
+    if (function_exists("curl_close") && version_compare(PHP_VERSION, "8.0", "<")) @curl_close($ch);
+    if ($err) return ['success'=>false,'error'=>'Curl error: ' . $err];
+    if ($code === 404 && $provider === 'google') {
+        // Try v1 fallback for Google
+        $altUrl = rtrim($base, '/') . '/v1/models?key=' . urlencode($apiKey);
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $altUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+        $resp2 = curl_exec($ch);
+        $code2 = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err2 = curl_error($ch);
+        if (function_exists("curl_close") && version_compare(PHP_VERSION, "8.0", "<")) @curl_close($ch);
+        if (!$err2 && $code2 >= 200 && $code2 < 300) { $resp = $resp2; $code = $code2; }
+    }
+    if ($code < 200 || $code >= 300) {
+        $snippet = substr($resp ?: '', 0, 600);
+        return ['success'=>false,'error'=>"HTTP $code: $snippet"];
+    }
+    $decoded = json_decode($resp, true);
+    if ($decoded === null) return ['success'=>false,'error'=>'Invalid JSON from provider'];
+    $models = [];
+    if ($provider === 'openai' || $provider === 'mistral' || $provider === 'grok' || $provider === 'openrouter') {
+        foreach (($decoded['data'] ?? []) as $m) {
+            $id = $m['id'] ?? $m['name'] ?? null;
+            if ($id) $models[] = $id;
+        }
+        if (empty($models) && isset($decoded['models'])) foreach ($decoded['models'] as $m) if (isset($m['id'])) $models[] = $m['id'];
+    } elseif ($provider === 'azure') {
+        foreach (($decoded['data'] ?? []) as $m) {
+            $id = $m['id'] ?? null;
+            if ($id) $models[] = $id;
+        }
+    } elseif ($provider === 'anthropic') {
+        foreach (($decoded['data'] ?? []) as $m) {
+            $id = $m['id'] ?? null;
+            if ($id) $models[] = $id;
+        }
+        // Anthropic also returns {data:[{id:...}]}
+        if (empty($models) && isset($decoded['models'])) foreach ($decoded['models'] as $m) $models[] = $m['id'] ?? $m;
+    } elseif ($provider === 'google') {
+        foreach (($decoded['models'] ?? []) as $m) {
+            $name = $m['name'] ?? '';
+            // Google returns "models/gemini-3.6-flash" — strip prefix
+            if (strpos($name, 'models/') === 0) $name = substr($name, 7);
+            if ($name) $models[] = $name;
+        }
+    } elseif ($provider === 'ollama') {
+        foreach (($decoded['models'] ?? []) as $m) {
+            $name = $m['name'] ?? $m['model'] ?? null;
+            if ($name) $models[] = $name;
+        }
+    }
+    $models = array_values(array_unique(array_filter($models)));
+    sort($models);
+    if (empty($models)) return ['success'=>false,'error'=>'No models returned from provider'];
+    return ['success'=>true,'models'=>$models];
+}
+function aimModelsEndpoint() {
+    $raw = file_get_contents('php://input');
+    $body = json_decode($raw ?: '{}', true);
+    if (!is_array($body)) $body = [];
+    $body = array_merge($_POST, $body);
+    $settings = aimLoadSettings();
+    $provider = trim((string)($body['provider'] ?? $settings['provider'] ?? ''));
+    $apiKey = trim((string)($body['api_key'] ?? $body['apiKey'] ?? $settings['api_key'] ?? ''));
+    $baseUrl = trim((string)($body['base_url'] ?? $body['baseUrl'] ?? $settings['base_url'] ?? ''));
+    // Allow explicit base_url from body, else use effective
+    if (!$provider) return json(['success'=>false,'error'=>'Provider required']);
+    $res = aimFetchProviderModels($provider, $apiKey, $baseUrl);
+    if (!$res['success']) {
+        aimLog('Models fetch failed provider=' . $provider . ' error=' . $res['error']);
+        return json(['success'=>false,'error'=>$res['error']]);
+    }
+    aimLog('Models fetched provider=' . $provider . ' count=' . count($res['models']));
+    return json(['success'=>true,'models'=>$res['models'],'provider'=>$provider]);
 }
 
 function aimSaveEndpoint() {

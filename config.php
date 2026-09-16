@@ -99,6 +99,8 @@ $showDevTab = $uiLevel >= 3;
                         <div class="d-flex flex-wrap gap-2 align-items-center">
                             <select id="aim_model_select" class="form-select" style="flex:1 1 160px; min-width:0;"></select>
                             <input type="text" id="aim_model" class="form-control" style="flex:1 1 140px; min-width:0;" placeholder="custom model" value="<?php echo htmlspecialchars($aimSettings['model']); ?>">
+                            <button type="button" class="buttons" id="aim_refresh_models" onclick="aimConfig.fetchModels(true)" title="Fetch available models from provider">↻ Refresh</button>
+                            <span id="aim_models_status" class="text-secondary" style="font-size:12px;"></span>
                         </div>
                         <div class="text-secondary" style="font-size:12px; margin-top:4px;">Pick a preset or type a custom deployment/model ID (Azure deployment name, OpenRouter slug, Ollama tag).</div>
                     </td>
@@ -201,44 +203,67 @@ $showDevTab = $uiLevel >= 3;
 var aimProviders = <?php echo json_encode($aimProviders); ?>;
 
 var aimConfig = {
-    populateModels: function() {
+    _fetchedModels: {}, // cache per provider
+    populateModels: function(fetched) {
         var prov = $('#aim_provider').val();
         var meta = aimProviders[prov] || {models:[], defaultBase:''};
+        var list = fetched || meta.models || [];
+        // If fetched is provided, use it; otherwise use preset
+        if (fetched && fetched.length) {
+            // Cache
+            aimConfig._fetchedModels[prov] = fetched;
+        } else if (aimConfig._fetchedModels[prov]) {
+            list = aimConfig._fetchedModels[prov];
+        }
         var sel = $('#aim_model_select').empty();
-        (meta.models||[]).forEach(function(m){
+        (list||[]).forEach(function(m){
             sel.append($('<option>',{value:m,text:m}));
         });
         var cur = $('#aim_model').val();
         // If current model is not valid for selected provider, warn and auto-correct to provider default
-        if (cur && meta.models.indexOf(cur) === -1) {
-            // Check if cur looks like a model for another provider (e.g. gpt- for google) — treat as mismatch
+        if (cur && list.indexOf(cur) === -1) {
             var isMismatch = true;
-            // Allow custom models that contain provider hint (e.g. openrouter slugs contain /) or are non-standard
-            // For Google, only gemini* is valid; for OpenAI only gpt*/o1* etc.
             if (prov === 'google' && cur.indexOf('gemini') === -1 && cur.indexOf('learnlm') === -1) {
                 isMismatch = true;
             } else if (prov === 'openai' && cur.indexOf('gemini') === 0) {
                 isMismatch = true;
             } else if (prov === 'anthropic' && cur.indexOf('claude') === -1) {
-                // allow custom but warn
                 isMismatch = true;
+            } else {
+                // For fetched lists, if cur not in list but looks like custom (contains / or -), allow as custom
+                if (cur.indexOf('/') !== -1) isMismatch = false;
+                else isMismatch = true;
             }
-            if (isMismatch) {
-                $.jGrowl('Model "'+cur+'" not valid for '+prov+' — switching to '+meta.models[0], {themeState:'warning'});
-                $('#aim_model').val(meta.models[0]);
-                cur = meta.models[0];
-                // still append old as option for reference but not selected
-                sel.append($('<option>',{value:cur,text:cur + ' (auto-corrected)'}));
+            if (isMismatch && list.length) {
+                // Only auto-correct if we have a valid list
+                if (!fetched) {
+                    // For preset, show warning but don't auto-correct custom entries with /
+                    if (cur.indexOf('/') === -1) {
+                        $.jGrowl('Model "'+cur+'" not valid for '+prov+' — switching to '+list[0], {themeState:'warning'});
+                        $('#aim_model').val(list[0]);
+                        cur = list[0];
+                        sel.append($('<option>',{value:cur,text:cur + ' (auto-corrected)'}));
+                    } else {
+                        sel.append($('<option>',{value:cur,text:cur + ' (custom)'}));
+                    }
+                } else {
+                    // Fetched list is authoritative — if cur not in fetched, keep as custom but warn
+                    sel.append($('<option>',{value:cur,text:cur + ' (custom/not in fetched)'}));
+                }
             } else {
                 sel.append($('<option>',{value:cur,text:cur + ' (custom)'}));
             }
         }
-        if (meta.models.indexOf(cur) !== -1) sel.val(cur);
-        else if (meta.models.length) {
-            if (!cur) { sel.val(meta.models[0]); $('#aim_model').val(meta.models[0]); }
+        if (list.indexOf(cur) !== -1) sel.val(cur);
+        else if (list.length) {
+            if (!cur) { sel.val(list[0]); $('#aim_model').val(list[0]); }
             else sel.val(cur);
         }
         $('#aim_default_base').text(meta.defaultBase || '');
+        if (fetched) {
+            $('#aim_models_status').html('<span class="text-success">✓ '+fetched.length+' models</span>');
+            setTimeout(function(){ $('#aim_models_status').text(''); }, 4000);
+        }
         // hint for key
         var hint = '';
         if (prov === 'openai') hint = 'sk-…';
@@ -252,6 +277,42 @@ var aimConfig = {
         // Toggle key required
         if (prov === 'ollama') $('#aim_api_key').attr('placeholder','No key needed for Ollama');
         else $('#aim_api_key').attr('placeholder','Paste your API key');
+    },
+    fetchModels: function(manual){
+        var prov = $('#aim_provider').val();
+        var key = $('#aim_api_key').val();
+        var base = $('#aim_base_url').val();
+        var meta = aimProviders[prov] || {};
+        if (prov !== 'ollama' && !key) {
+            if (manual) $.jGrowl('Enter API key for '+prov+' to fetch models',{themeState:'warning'});
+            $('#aim_models_status').html('<span class="text-warning">Need API key</span>');
+            return;
+        }
+        $('#aim_models_status').html('<span class="text-secondary">Fetching…</span>');
+        $('#aim_refresh_models').prop('disabled', true);
+        $.ajax({
+            url: 'api/plugin/fpp-AImode/models',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({provider: prov, api_key: key, base_url: base}),
+            dataType: 'json',
+            success: function(r){
+                if (r.success && r.models && r.models.length) {
+                    aimConfig.populateModels(r.models);
+                    if (manual) $.jGrowl('Fetched '+r.models.length+' models for '+prov,{themeState:'success'});
+                } else {
+                    $('#aim_models_status').html('<span class="text-danger">'+(r.error||'Failed')+'</span>');
+                    if (manual) $.jGrowl(r.error||'Failed to fetch models',{themeState:'error'});
+                }
+            },
+            error: function(xhr){
+                var m='Could not fetch models';
+                try{ var j=JSON.parse(xhr.responseText); if(j.error) m=j.error; }catch(e){}
+                $('#aim_models_status').html('<span class="text-danger">'+m+'</span>');
+                if (manual) $.jGrowl(m,{themeState:'error'});
+            },
+            complete: function(){ $('#aim_refresh_models').prop('disabled', false); }
+        });
     },
     collect: function() {
         return {
@@ -335,9 +396,24 @@ function escHtml(s){ if(s==null) return ''; return String(s).replace(/&/g,'&amp;
 
 $(document).ready(function(){
     aimConfig.populateModels();
-    $('#aim_provider').on('change', aimConfig.populateModels);
+    // Auto-fetch models when provider or key changes and key is present (or ollama)
+    var _fetchDebounce = null;
+    function scheduleFetch(){
+        clearTimeout(_fetchDebounce);
+        _fetchDebounce = setTimeout(function(){
+            var prov = $('#aim_provider').val();
+            var key = $('#aim_api_key').val();
+            if (prov === 'ollama' || (key && key.length > 8)) {
+                aimConfig.fetchModels(false);
+            }
+        }, 600);
+    }
+    $('#aim_provider').on('change', function(){ aimConfig.populateModels(); scheduleFetch(); });
     $('#aim_model_select').on('change', function(){ $('#aim_model').val($(this).val()); });
     $('#aim_temp').on('input', function(){ $('#aim_temp_val').text($(this).val()); });
+    $('#aim_api_key').on('blur', scheduleFetch);
+    // Initial auto-fetch if key already present
+    setTimeout(scheduleFetch, 800);
 });
 </script>
 
