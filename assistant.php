@@ -143,10 +143,11 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
                     <?php if (!empty($aimSettings['auto_approve'])) echo '<span class="badge bg-success" title="Tools run automatically">✓ Auto-approve</span>'; else echo '<span class="badge bg-secondary" title="You must approve each tool">Manual approve</span>'; ?>
                 </span>
                 <span id="aimConvProviderStatus" class="text-secondary" style="font-size:11px;"></span>
+                <label style="display:flex; gap:6px; align-items:center; font-size:12px; margin-left:auto; cursor:pointer; white-space:nowrap; background:#fff; padding:4px 8px; border-radius:6px; border:1px solid var(--bs-border-color);"><input type="checkbox" id="aimVerbose" style="margin:0;"> Verbose</label>
             </div>
             <div class="aim-help">
                 💡 <b>Tip:</b> <b>Enter</b> to send, <b>Shift+Enter</b> for newline. Each reply may propose FPP actions — click <b>✓ Approve</b> to run them. Dry-run is off by default; toggle in <a href="plugin.php?plugin=fpp-AImode&page=config.php">Config</a>.
-                · <a href="plugin.php?plugin=fpp-AImode&page=help.php">📖 Help & examples</a>
+                · <a href="plugin.php?plugin=fpp-AImode&page=help.php">📖 Help & examples</a> · <span class="text-secondary" style="font-size:11px;">Verbose shows tool JSON; off shows just the answer.</span>
             </div>
         </div>
     </fieldset>
@@ -154,6 +155,30 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
 
 <script>
 var aimProviders = <?php echo json_encode($aimProviders); ?>;
+var aimVerbose = {
+    isOn: function(){ return $('#aimVerbose').is(':checked'); },
+    init: function(){
+        try{ var v = localStorage.getItem('fppAImode_verbose'); if(v==='1') $('#aimVerbose').prop('checked', true); else $('#aimVerbose').prop('checked', false); }catch(e){}
+        $('#aimVerbose').on('change', function(){
+            try{ localStorage.setItem('fppAImode_verbose', this.checked ? '1' : '0'); }catch(e){}
+            aimVerbose.toggleAll();
+        });
+        // Apply initial state after a short delay to catch already-rendered history
+        setTimeout(function(){ aimVerbose.toggleAll(); }, 500);
+    },
+    toggleAll: function(){
+        var on = aimVerbose.isOn();
+        if(on){
+            $('.aim-verbose-details').show();
+            $('.aim-tool-card').show();
+            $('.aim-verbose-summary').hide();
+        } else {
+            $('.aim-verbose-details').hide();
+            $('.aim-tool-card').hide();
+            $('.aim-verbose-summary').show();
+        }
+    }
+};
 var aimChat = {
     busy:false,
     currentConvId: null,
@@ -243,20 +268,44 @@ var aimChat = {
                 var meta = (r.provider||'')+' / '+(r.model||'') + (r.dry_run?' · dry-run':'') + (r.auto_approve?' · auto':'');
                 aimChat.addMsg('assistant', r.reply || '(no reply)', meta);
                 if(r.tool_calls && r.tool_calls.length){
+                    var verboseOn = aimVerbose.isOn();
                     var container = $('<div style="margin-bottom:12px;">');
                     if(r.dry_run) container.append('<div class="text-warning" style="font-size:12px; margin-bottom:4px;">Dry-run enabled — tools not executed. Disable in Config to allow execution.</div>');
+                    if(!verboseOn){
+                        // Simplified view: just a one-line summary, no JSON
+                        var exec = r.executed || [];
+                        var okCount = exec.filter(function(e){ return e.result && e.result.success; }).length;
+                        var failCount = exec.length - okCount;
+                        var summary = '';
+                        if(r.auto_approve && exec.length){
+                            if(failCount>0) summary = '<span class="text-warning">⚠️ '+(exec.length)+' tool(s) executed — '+okCount+' ok, '+failCount+' failed</span>';
+                            else summary = '<span class="text-success">✓ '+(exec.length)+' tool(s) executed</span>';
+                        } else if(exec.length===0 && r.tool_calls.length){
+                            summary = '<span class="text-secondary">⚙️ '+r.tool_calls.length+' tool(s) proposed — enable Verbose to see details</span>';
+                        }
+                        if(summary) container.append('<div class="aim-verbose-summary" style="font-size:11px; margin-top:6px;">'+summary+'</div>');
+                    }
+                    // Full verbose cards (hidden when verbose off)
+                    var verboseWrap = $('<div>').addClass('aim-verbose-details');
+                    if(!verboseOn) verboseWrap.hide();
                     if(r.auto_approve && r.executed && r.executed.length){
                         r.executed.forEach(function(ex){
                             var ok = ex.result && ex.result.success;
-                            container.append('<div class="aim-tool-card" style="border-left:3px solid var('+(ok?'--bs-success':'--bs-danger')+')"><b>🔧 '+(ex.call.name||'')+'</b> <span class="text-secondary" style="font-size:11px;">(auto-executed)</span><pre>'+aimChat.esc(JSON.stringify(ex.call.arguments||{},null,2))+'</pre><div style="font-size:12px; color:var('+(ok?'--bs-success':'--bs-danger')+')">'+aimChat.esc(ok ? '✓ '+(JSON.stringify(ex.result.result||ex.result).slice(0,600)) : '✗ '+(ex.result.error||'failed'))+'</div></div>');
+                            verboseWrap.append('<div class="aim-tool-card" style="border-left:3px solid var('+(ok?'--bs-success':'--bs-danger')+')"><b>🔧 '+(ex.call.name||'')+'</b> <span class="text-secondary" style="font-size:11px;">(auto-executed)</span><pre>'+aimChat.esc(JSON.stringify(ex.call.arguments||{},null,2))+'</pre><div style="font-size:12px; color:var('+(ok?'--bs-success':'--bs-danger')+')">'+aimChat.esc(ok ? '✓ '+(JSON.stringify(ex.result.result||ex.result).slice(0,600)) : '✗ '+(ex.result.error||'failed'))+'</div></div>');
                         });
                     } else {
                         r.tool_calls.forEach(function(tc,i){
-                            container.append(aimChat.renderTool(tc,i));
+                            verboseWrap.append(aimChat.renderTool(tc,i));
                         });
                         if(r.tool_calls.length>1){
-                            container.append('<div style="margin-top:6px;"><button class="buttons" onclick="aimChat.approveAll(this)">✓ Approve All ('+r.tool_calls.length+')</button></div>');
+                            verboseWrap.append('<div style="margin-top:6px;"><button class="buttons" onclick="aimChat.approveAll(this)">✓ Approve All ('+r.tool_calls.length+')</button></div>');
                         }
+                    }
+                    container.append(verboseWrap);
+                    // Always show a tiny summary even in verbose mode for quick glance
+                    if(verboseOn && r.auto_approve && r.executed && r.executed.length){
+                        var s2 = r.executed.length + ' tool(s) executed';
+                        container.prepend('<div class="text-secondary" style="font-size:11px;">'+s2+'</div>');
                     }
                     $('#aimMessages').append(container);
                     aimChat.scrollBottom();
@@ -472,16 +521,36 @@ var aimConv = {
                         if(e.meta && e.meta.tool_calls && e.meta.tool_calls.length) meta += ' · ' + e.meta.tool_calls.length + ' tool(s)';
                         if(e.meta && e.meta.provider) meta += ' · ' + e.meta.provider;
                         aimChat.addMsg(role, e.content, meta);
-                        // Render tool calls if present in meta
+                        // Render tool calls if present in meta — verbose controls JSON visibility
                         if(e.meta && e.meta.tool_calls && e.meta.tool_calls.length && role==='assistant'){
+                            var verboseOn2 = aimVerbose.isOn();
                             var container = $('<div style="margin-bottom:8px;">');
-                            // Show executed if present
+                            // Simplified summary always visible when verbose off
+                            if(!verboseOn2){
+                                var exec2 = e.meta.executed || [];
+                                var txt = '';
+                                if(exec2.length){
+                                    var ok2 = exec2.filter(function(x){ return x.result && x.result.success; }).length;
+                                    var fail2 = exec2.length - ok2;
+                                    txt = (fail2>0 ? '<span class="text-warning">⚠️ '+exec2.length+' tool(s) — '+ok2+' ok, '+fail2+' failed</span>' : '<span class="text-success">✓ '+exec2.length+' tool(s) executed</span>');
+                                } else {
+                                    txt = '<span class="text-secondary">⚙️ '+e.meta.tool_calls.length+' tool(s) — enable Verbose to see details</span>';
+                                }
+                                container.append('<div class="aim-verbose-summary" style="font-size:11px; margin-top:4px;">'+txt+'</div>');
+                            }
+                            var verboseWrap2 = $('<div>').addClass('aim-verbose-details');
+                            if(!verboseOn2) verboseWrap2.hide();
                             if(e.meta.executed && e.meta.executed.length){
                                 e.meta.executed.forEach(function(ex){
                                     var ok = ex.result && ex.result.success;
-                                    container.append('<div class="aim-tool-card" style="border-left:3px solid var('+(ok?'--bs-success':'--bs-danger')+')"><b>🔧 '+(ex.call.name||'')+'</b> <span class="text-secondary" style="font-size:11px;">(auto-executed)</span><pre>'+aimChat.esc(JSON.stringify(ex.call.arguments||{},null,2))+'</pre></div>');
+                                    verboseWrap2.append('<div class="aim-tool-card" style="border-left:3px solid var('+(ok?'--bs-success':'--bs-danger')+')"><b>🔧 '+(ex.call.name||'')+'</b> <span class="text-secondary" style="font-size:11px;">(auto-executed)</span><pre>'+aimChat.esc(JSON.stringify(ex.call.arguments||{},null,2))+'</pre></div>');
+                                });
+                            } else {
+                                e.meta.tool_calls.forEach(function(tc){
+                                    verboseWrap2.append('<div class="aim-tool-card" style="border-left:3px solid var(--bs-warning)"><b>🔧 '+(tc.name||'')+'</b><pre>'+aimChat.esc(JSON.stringify(tc.arguments||{},null,2))+'</pre></div>');
                                 });
                             }
+                            container.append(verboseWrap2);
                             $('#aimMessages').append(container);
                         }
                     });
@@ -784,6 +853,7 @@ var aimConv = {
 };
 
 $(document).ready(function(){
+    aimVerbose.init();
     // Populate provider select immediately with preset, then default to server's defaultProvider/model
     aimConv.populateProviderSelect();
     // Pre-select default provider/model before conversations load so bar is not stuck on openai
