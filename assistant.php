@@ -42,7 +42,6 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
     fieldset { padding: 5px !important; }
     .aim-chat-input { flex-direction: column; }
     .aim-chat-input textarea { min-height: 80px; }
-    .aim-voice-bar { flex-direction: column; align-items: stretch !important; }
 }
 .aim-chat { display:flex; flex-direction:column; gap:12px; }
 .aim-messages { border:1px solid var(--bs-border-color,#dee2e6); border-radius:6px; padding:12px; min-height:320px; max-height:520px; overflow-y:auto; background: var(--bs-body-bg,#fff); }
@@ -57,13 +56,7 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
 .aim-tool-card pre { margin:4px 0 6px 0; white-space:pre-wrap; word-break:break-all; font-size:11px; background:var(--bs-tertiary-bg,#f8f9fa); padding:6px; border-radius:4px; }
 .aim-examples { display:flex; flex-wrap:wrap; gap:6px; }
 .aim-examples button { font-size:12px; padding:4px 8px; }
-.aim-voice-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; padding:8px; border:1px dashed var(--bs-border-color,#dee2e6); border-radius:6px; background: var(--bs-tertiary-bg,#f8f9fa); }
-.btn-mic { background:var(--bs-success); color:var(--bs-white); border:1px solid var(--bs-success); padding:6px 14px; border-radius:20px; cursor:pointer; font-weight:600; font-size:13px; display:inline-flex; align-items:center; gap:6px; }
-.btn-mic:hover { filter:brightness(0.9); }
-.btn-mic.listening { background:var(--bs-danger); border-color:var(--bs-danger); animation: aimPulse 1.2s infinite; }
-.btn-mic:disabled { opacity:0.5; cursor:not-allowed; animation:none; }
-@keyframes aimPulse { 0%{ box-shadow:0 0 0 0 rgba(var(--bs-danger-rgb),0.5);} 70%{ box-shadow:0 0 0 8px rgba(var(--bs-danger-rgb),0);} 100%{ box-shadow:0 0 0 0 rgba(var(--bs-danger-rgb),0);} }
-.aim-interim { color:var(--bs-secondary-color); font-style:italic; font-size:12px; min-height:1.2em; }
+.aim-provider-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; padding:8px; border:1px dashed var(--bs-border-color,#dee2e6); border-radius:6px; background: var(--bs-tertiary-bg,#f8f9fa); }
 .aim-thinking { display:none; align-items:center; gap:8px; font-size:12px; color:var(--bs-secondary-color); padding:6px 10px; border:1px dashed var(--bs-border-color); border-radius:6px; background:var(--bs-tertiary-bg); margin-top:6px; }
 .aim-thinking.show { display:flex; }
 .aim-thinking .spinner { width:14px; height:14px; border:2px solid var(--bs-secondary-color); border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite; flex-shrink:0; }
@@ -129,43 +122,16 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
                     <span id="aimChatStatus" class="text-secondary" style="font-size:11px; text-align:center;"></span>
                 </div>
             </div>
-            <div class="aim-voice-bar" id="aimVoiceBar" style="flex-direction:column; align-items:stretch;">
-                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                    <span class="text-secondary" style="font-size:12px; white-space:nowrap;">Provider for this conversation:</span>
-                    <select id="aimConvProvider" class="form-select" style="flex:0 1 160px; max-width:180px; font-size:12px;" onchange="aimConv.onProviderChange()"></select>
-                    <select id="aimConvModel" class="form-select" style="flex:1 1 160px; max-width:260px; font-size:12px;" onchange="aimConv.onModelChange()"></select>
-                    <button type="button" class="buttons" onclick="aimConv.saveProvider()" title="Save provider/model for this conversation">Save</button>
-                    <button type="button" class="buttons" onclick="aimConv.fetchModels(true)" title="Refresh models">↻</button>
-                    <span id="aimConvProviderStatus" class="text-secondary" style="font-size:11px;"></span>
-                </div>
-                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; padding-top:8px; border-top:1px dashed var(--bs-border-color);">
-                    <button type="button" class="btn-mic" id="aimMicBtn" onclick="aimVoice.toggle();" title="Start/stop voice input">🎤 Voice Input</button>
-                    <select id="aimVoiceLang" title="Voice language" class="form-select d-inline-block" style="max-width:10rem; width:auto; font-size:12px;">
-                        <option value="">Auto (browser)</option>
-                        <option value="en-US">English (US)</option>
-                        <option value="en-GB">English (UK)</option>
-                        <option value="en-AU">English (AU)</option>
-                        <option value="es-ES">Español (ES)</option>
-                        <option value="es-US">Español (US)</option>
-                        <option value="fr-FR">Français</option>
-                        <option value="de-DE">Deutsch</option>
-                        <option value="it-IT">Italiano</option>
-                        <option value="pt-BR">Português (BR)</option>
-                        <option value="nl-NL">Nederlands</option>
-                        <option value="ja-JP">日本語</option>
-                        <option value="ko-KR">한국어</option>
-                        <option value="zh-CN">中文 (简体)</option>
-                    </select>
-                    <label style="font-size:12px; display:inline-flex; align-items:center; gap:4px; margin:0;">
-                        <input type="checkbox" id="aimVoiceAutoSend"> Auto-send
-                    </label>
-                    <span id="aimVoiceStatus" class="text-secondary" style="font-size:12px; flex:1;"></span>
-                    <span id="aimVoiceSupport" class="text-secondary" style="font-size:11px;"></span>
-                </div>
+            <div class="aim-provider-bar" id="aimProviderBar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <span class="text-secondary" style="font-size:12px; white-space:nowrap;">Provider for this conversation:</span>
+                <select id="aimConvProvider" class="form-select" style="flex:0 1 160px; max-width:180px; font-size:12px;" onchange="aimConv.onProviderChange()"></select>
+                <select id="aimConvModel" class="form-select" style="flex:1 1 160px; max-width:260px; font-size:12px;" onchange="aimConv.onModelChange()"></select>
+                <button type="button" class="buttons" onclick="aimConv.saveProvider()" title="Save provider/model for this conversation">Save</button>
+                <button type="button" class="buttons" onclick="aimConv.fetchModels(true)" title="Refresh models">↻</button>
+                <span id="aimConvProviderStatus" class="text-secondary" style="font-size:11px;"></span>
             </div>
-            <div class="aim-interim" id="aimVoiceInterim"></div>
             <div class="text-secondary" style="font-size:11px;">
-                <b>Enter</b> to send, <b>Shift+Enter</b> for newline. <b>🎤 Voice</b> transcribes locally via your browser (Web Speech API) — only the text transcript is sent to the AI provider when you Send. Tool calls are shown below each reply — click <b>Approve</b> to execute. In dry-run nothing is executed.
+                <b>Enter</b> to send, <b>Shift+Enter</b> for newline. Tool calls are shown below each reply — click <b>Approve</b> to execute. In dry-run nothing is executed.
                 &nbsp;<a href="plugin.php?plugin=fpp-AImode&page=help.php">Help</a>
             </div>
         </div>
@@ -782,140 +748,6 @@ var aimConv = {
     }
 };
 
-var aimVoice = {
-    recognition: null,
-    listening: false,
-    supported: !!(window.SpeechRecognition || window.webkitSpeechRecognition),
-    interim: '',
-    finalText: '',
-    init: function(){
-        var sup = $('#aimVoiceSupport');
-        var btn = $('#aimMicBtn');
-        if(!aimVoice.supported){
-            sup.html('<span class="text-danger">Voice not supported — try Chrome/Edge on desktop (HTTPS required)</span>');
-            btn.prop('disabled', true).attr('title','Web Speech API not available');
-            $('#aimVoiceStatus').text('');
-            console.warn('aimVoice: SpeechRecognition not found');
-            return;
-        }
-        // Secure context check — Chrome requires HTTPS for mic/SpeechRecognition (except localhost)
-        var isSecure = window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'https:';
-        if(!isSecure){
-            sup.html('<span class="text-warning">Voice needs HTTPS/secure context — use https:// or http://localhost (current: '+location.protocol+'//'+location.hostname+')</span>');
-            console.warn('aimVoice: insecure context', location.protocol, location.hostname);
-            // Still init but will likely fail with not-allowed; keep button enabled so user can try
-        } else {
-            sup.text('Browser speech ready');
-        }
-        try{
-            var lang = localStorage.getItem('fppAImode_voiceLang');
-            if(lang) $('#aimVoiceLang').val(lang);
-            var auto = localStorage.getItem('fppAImode_voiceAutoSend');
-            if(auto === '1') $('#aimVoiceAutoSend').prop('checked', true);
-        }catch(e){}
-        $('#aimVoiceLang').on('change', function(){
-            try{ localStorage.setItem('fppAImode_voiceLang', $(this).val()); }catch(e){}
-        });
-        $('#aimVoiceAutoSend').on('change', function(){
-            try{ localStorage.setItem('fppAImode_voiceAutoSend', this.checked ? '1' : '0'); }catch(e){}
-        });
-        var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        aimVoice.recognition = new SR();
-        aimVoice.recognition.interimResults = true;
-        aimVoice.recognition.continuous = false;
-        aimVoice.recognition.maxAlternatives = 1;
-        aimVoice.recognition.onstart = function(){
-            aimVoice.listening = true;
-            btn.addClass('listening').text('⏹ Stop');
-            $('#aimVoiceStatus').html('<span class="text-danger">● Listening… speak now</span>');
-            $('#aimVoiceInterim').text('');
-            aimVoice.finalText = '';
-        };
-        aimVoice.recognition.onresult = function(event){
-            var interim = '';
-            var final = '';
-            for(var i=event.resultIndex; i<event.results.length; i++){
-                var res = event.results[i];
-                if(res.isFinal) final += res[0].transcript;
-                else interim += res[0].transcript;
-            }
-            if(interim) $('#aimVoiceInterim').text('… ' + interim);
-            if(final){
-                $('#aimVoiceInterim').text('');
-                var ta = $('#aimPrompt');
-                var cur = ta.val();
-                var toInsert = final.trim();
-                if(cur && !cur.endsWith(' ') && !cur.endsWith('\n')) toInsert = ' ' + toInsert;
-                ta.val(cur + toInsert);
-                ta.focus();
-                aimVoice.finalText += (aimVoice.finalText ? ' ' : '') + final.trim();
-            }
-        };
-        aimVoice.recognition.onerror = function(event){
-            var msg = event.error || 'unknown';
-            if(msg === 'not-allowed' || msg === 'permission-denied'){
-                $('#aimVoiceStatus').html('<span class="text-danger">Microphone permission denied — allow mic access in browser.</span>');
-                $.jGrowl('Microphone permission denied',{themeState:'error'});
-            } else if(msg === 'no-speech'){
-                $('#aimVoiceStatus').html('<span class="text-warning">No speech detected — try again.</span>');
-            } else if(msg === 'audio-capture'){
-                $('#aimVoiceStatus').html('<span class="text-danger">No microphone found.</span>');
-            } else {
-                $('#aimVoiceStatus').html('<span class="text-danger">Voice error: '+aimChat.esc(msg)+'</span>');
-            }
-            $('#aimVoiceInterim').text('');
-        };
-        aimVoice.recognition.onend = function(){
-            var wasListening = aimVoice.listening;
-            aimVoice.listening = false;
-            btn.removeClass('listening').text('🎤 Voice Input');
-            $('#aimVoiceInterim').text('');
-            if(wasListening){
-                if(aimVoice.finalText){
-                    $('#aimVoiceStatus').html('<span class="text-success">✓ Captured: “'+aimChat.esc(aimVoice.finalText.slice(0,80))+'”</span>');
-                    if($('#aimVoiceAutoSend').is(':checked')){
-                        setTimeout(function(){ aimChat.send(); }, 250);
-                    }
-                } else {
-                    $('#aimVoiceStatus').html('<span class="text-secondary">Stopped — no transcript. Try again.</span>');
-                }
-                setTimeout(function(){ $('#aimVoiceStatus').text(''); aimVoice.finalText=''; }, 4000);
-            }
-        };
-    },
-    toggle: function(){
-        if(!aimVoice.supported){
-            $.jGrowl('Voice input not supported in this browser — try Chrome/Edge + HTTPS',{themeState:'error'});
-            return;
-        }
-        var isSecure = window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'https:';
-        if(!isSecure){
-            $('#aimVoiceStatus').html('<span class="text-warning">Voice needs HTTPS — browser may block mic on http://'+location.hostname+' — try https:// or localhost</span>');
-            $.jGrowl('Voice needs HTTPS/secure context',{themeState:'warning'});
-            // still try
-        }
-        if(aimVoice.listening){
-            try{ aimVoice.recognition.stop(); }catch(e){}
-            return;
-        }
-        // Re-create recognition if null (after error)
-        if(!aimVoice.recognition){
-            try{ aimVoice.init(); }catch(e){}
-        }
-        var lang = $('#aimVoiceLang').val();
-        if(!lang) lang = navigator.language || 'en-US';
-        if(aimVoice.recognition) aimVoice.recognition.lang = lang;
-        aimVoice.finalText = '';
-        try{
-            aimVoice.recognition.start();
-            console.log('aimVoice.start lang='+lang+' secure='+isSecure);
-        }catch(e){
-            $('#aimVoiceStatus').html('<span class="text-danger">Could not start voice: '+aimChat.esc(e.message||String(e))+' — check mic permission and HTTPS</span>');
-            console.warn('aimVoice start failed', e);
-        }
-    }
-};
-
 $(document).ready(function(){
     // Populate provider select immediately with preset, then default to server's defaultProvider/model
     aimConv.populateProviderSelect();
@@ -945,7 +777,6 @@ $(document).ready(function(){
     setInterval(function(){ aimConv.checkAndPoll(); }, 5000);
     document.addEventListener('visibilitychange', function(){ if(!document.hidden) aimConv.checkAndPoll(); });
     window.addEventListener('pageshow', function(){ aimConv.checkAndPoll(); });
-    try{ aimVoice.init(); }catch(e){ console.warn('aimVoice init failed', e); }
 });
 </script>
 
