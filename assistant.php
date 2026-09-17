@@ -411,6 +411,19 @@ var aimConv = {
                     aimChat.currentConvId = null;
                     localStorage.removeItem('fppAImode_activeConv');
                     aimConv.updateStatusBar();
+                    // Show default provider/model in bottom bar even with no conversations
+                    aimConv.ensureProviders(function(provs){
+                        var defProv = aimConv._defaultProvider || 'openai';
+                        var curSel = $('#aimConvProvider').val();
+                        if(!curSel || curSel !== defProv) $('#aimConvProvider').val(defProv);
+                        var provToShow = $('#aimConvProvider').val() || defProv;
+                        var defModel = (provs[provToShow] && provs[provToShow].model) ? provs[provToShow].model : '';
+                        if(!defModel && typeof aimProviders !== 'undefined' && aimProviders[provToShow]) defModel = aimProviders[provToShow].models[0] || '';
+                        if(defModel) aimConv._currentModel = defModel;
+                        aimConv.fetchModelsForProvider(provToShow);
+                        // Ensure correct provider option selected after populate
+                        $('#aimConvProvider').val(provToShow);
+                    });
                     return;
                 }
                 r.conversations.forEach(function(c){
@@ -638,6 +651,8 @@ var aimConv = {
             var sel = $('#aimConvProvider');
             if(!sel.length) return;
             var curVal = sel.val();
+            // Prefer server default if curVal empty
+            if(!curVal && aimConv._defaultProvider) curVal = aimConv._defaultProvider;
             sel.empty();
             var list = (typeof aimProviders !== 'undefined' && aimProviders) ? aimProviders : (window.aimProviders || {});
             var keys = Object.keys(list);
@@ -647,7 +662,8 @@ var aimConv = {
                 var label = (list[k] && list[k].label) ? list[k].label : k;
                 sel.append($('<option>',{value:k,text:label+' ('+k+')'}));
             });
-            if(curVal) sel.val(curVal);
+            if(curVal && sel.find('option[value="'+curVal+'"]').length) sel.val(curVal);
+            else if(aimConv._defaultProvider && sel.find('option[value="'+aimConv._defaultProvider+'"]').length) sel.val(aimConv._defaultProvider);
         };
         // Try sync populate with local aimProviders if available
         if(typeof aimProviders !== 'undefined' && aimProviders && Object.keys(aimProviders).length){
@@ -655,6 +671,11 @@ var aimConv = {
         }
         aimConv.ensureProviders(function(provs){
             doPopulate(provs);
+            // If model dropdown still empty and no conversation, trigger default fetch (ready handler also does this; safe to call twice)
+            if(!aimConv.currentId && $('#aimConvModel option').length <= 1){
+                var dp = aimConv._defaultProvider || $('#aimConvProvider').val() || 'openai';
+                if(dp) aimConv.fetchModelsForProvider(dp);
+            }
         });
     },
     onProviderChange: function(){
@@ -771,12 +792,21 @@ var aimVoice = {
         var sup = $('#aimVoiceSupport');
         var btn = $('#aimMicBtn');
         if(!aimVoice.supported){
-            sup.text('Voice not supported in this browser — try Chrome/Edge on desktop.');
+            sup.html('<span class="text-danger">Voice not supported — try Chrome/Edge on desktop (HTTPS required)</span>');
             btn.prop('disabled', true).attr('title','Web Speech API not available');
             $('#aimVoiceStatus').text('');
+            console.warn('aimVoice: SpeechRecognition not found');
             return;
         }
-        sup.text('Browser speech ready');
+        // Secure context check — Chrome requires HTTPS for mic/SpeechRecognition (except localhost)
+        var isSecure = window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'https:';
+        if(!isSecure){
+            sup.html('<span class="text-warning">Voice needs HTTPS/secure context — use https:// or http://localhost (current: '+location.protocol+'//'+location.hostname+')</span>');
+            console.warn('aimVoice: insecure context', location.protocol, location.hostname);
+            // Still init but will likely fail with not-allowed; keep button enabled so user can try
+        } else {
+            sup.text('Browser speech ready');
+        }
         try{
             var lang = localStorage.getItem('fppAImode_voiceLang');
             if(lang) $('#aimVoiceLang').val(lang);
@@ -855,25 +885,61 @@ var aimVoice = {
     },
     toggle: function(){
         if(!aimVoice.supported){
-            $.jGrowl('Voice input not supported in this browser',{themeState:'error'});
+            $.jGrowl('Voice input not supported in this browser — try Chrome/Edge + HTTPS',{themeState:'error'});
             return;
+        }
+        var isSecure = window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'https:';
+        if(!isSecure){
+            $('#aimVoiceStatus').html('<span class="text-warning">Voice needs HTTPS — browser may block mic on http://'+location.hostname+' — try https:// or localhost</span>');
+            $.jGrowl('Voice needs HTTPS/secure context',{themeState:'warning'});
+            // still try
         }
         if(aimVoice.listening){
             try{ aimVoice.recognition.stop(); }catch(e){}
             return;
         }
+        // Re-create recognition if null (after error)
+        if(!aimVoice.recognition){
+            try{ aimVoice.init(); }catch(e){}
+        }
         var lang = $('#aimVoiceLang').val();
         if(!lang) lang = navigator.language || 'en-US';
-        aimVoice.recognition.lang = lang;
+        if(aimVoice.recognition) aimVoice.recognition.lang = lang;
         aimVoice.finalText = '';
-        try{ aimVoice.recognition.start(); }catch(e){
-            $('#aimVoiceStatus').html('<span class="text-danger">Could not start voice: '+aimChat.esc(e.message||String(e))+'</span>');
+        try{
+            aimVoice.recognition.start();
+            console.log('aimVoice.start lang='+lang+' secure='+isSecure);
+        }catch(e){
+            $('#aimVoiceStatus').html('<span class="text-danger">Could not start voice: '+aimChat.esc(e.message||String(e))+' — check mic permission and HTTPS</span>');
+            console.warn('aimVoice start failed', e);
         }
     }
 };
 
 $(document).ready(function(){
+    // Populate provider select immediately with preset, then default to server's defaultProvider/model
     aimConv.populateProviderSelect();
+    // Pre-select default provider/model before conversations load so bar is not stuck on openai
+    aimConv.ensureProviders(function(provs){
+        var defProv = aimConv._defaultProvider || 'openai';
+        // Only set if no conversation yet selected (avoids overriding load())
+        if(!aimConv.currentId){
+            var sel = $('#aimConvProvider');
+            // If populate hadn't set a value yet, default to defProv
+            if(!sel.val() || sel.find('option[value="'+defProv+'"]').length){
+                // set to default provider
+                sel.val(defProv);
+            }
+            var curProv = sel.val() || defProv;
+            var defModel = (provs[curProv] && provs[curProv].model) ? provs[curProv].model : '';
+            if(!defModel && typeof aimProviders !== 'undefined' && aimProviders[curProv]) defModel = aimProviders[curProv].models[0] || '';
+            if(defModel && !aimConv._currentModel) aimConv._currentModel = defModel;
+            // Fetch models for the default provider so dropdown shows immediately (even before any conversation)
+            if($('#aimConvModel option').length <= 1){
+                aimConv.fetchModelsForProvider(curProv);
+            }
+        }
+    });
     aimConv.refreshList();
     setInterval(aimChat.refreshStatus, 15000);
     setInterval(function(){ aimConv.checkAndPoll(); }, 5000);
