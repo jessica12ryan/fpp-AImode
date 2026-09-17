@@ -98,29 +98,17 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
                 <a href="plugin.php?plugin=fpp-AImode&page=config.php" class="buttons" style="white-space:nowrap;">⚙️ Configure</a>
             </div>
 
-            <div class="aim-header">
-                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-                    <span class="badge bg-primary" style="font-weight:600;">🤖 <span id="aim-cur-provider"><?php echo htmlspecialchars($aimSettings['provider']); ?></span></span>
-                    <span class="text-secondary" style="font-size:12px;">using</span>
-                    <span class="badge bg-secondary" id="aim-cur-model" style="font-weight:500;"><?php echo htmlspecialchars($aimSettings['model']); ?></span>
-                    <span id="aim-mode-badges">
-                        <?php if (!empty($aimSettings['dry_run'])) echo '<span class="badge bg-warning text-dark">DRY-RUN</span> '; ?>
-                        <?php if (!empty($aimSettings['auto_approve'])) echo '<span class="badge bg-success">✓ Auto-approve</span>'; else echo '<span class="badge bg-secondary">Manual approve</span>'; ?>
-                    </span>
-                </div>
-                <div style="display:flex; gap:6px;">
-                    <button type="button" class="buttons btn-sm" onclick="aimChat.loadHistory();" title="Reload current conversation">↻ Reload</button>
-                    <button type="button" class="buttons btn-sm" onclick="aimChat.clearHistory();" title="Delete this conversation">🗑️ Clear</button>
-                </div>
-            </div>
-
             <div id="aimConvBar" class="aim-conv-bar">
                 <label for="aimConvSelect">💬 Conversation</label>
-                <select id="aimConvSelect" class="form-select" style="flex:1 1 180px; max-width:300px; font-size:13px; font-weight:500;" onchange="aimConv.switch(this.value)"></select>
-                <button type="button" class="buttons" onclick="aimConv.create()" title="Start a new chat" style="background:var(--bs-primary); color:#fff; border-color:var(--bs-primary);">＋ New Chat</button>
-                <button type="button" class="buttons" onclick="aimConv.rename()" title="Rename this conversation">✎ Rename</button>
-                <button type="button" class="buttons" onclick="aimConv.delete()" title="Delete this conversation">🗑️ Delete</button>
-                <span id="aimConvStatus" class="text-secondary" style="font-size:11px; flex:1; text-align:right;"></span>
+                <select id="aimConvSelect" class="form-select" style="flex:1 1 180px; max-width:280px; font-size:13px; font-weight:500;" onchange="aimConv.switch(this.value)"></select>
+                <button type="button" class="buttons" onclick="aimConv.create()" title="Start a new chat" style="background:var(--bs-primary); color:#fff; border-color:var(--bs-primary); font-weight:600;">＋ New</button>
+                <button type="button" class="buttons btn-sm" onclick="aimConv.rename()" title="Rename this conversation">✎</button>
+                <button type="button" class="buttons btn-sm" onclick="aimConv.delete()" title="Delete this conversation">🗑️</button>
+                <div style="display:flex; gap:6px; margin-left:auto; align-items:center;">
+                    <button type="button" class="buttons btn-sm" onclick="aimChat.loadHistory();" title="Reload current conversation">↻ Reload</button>
+                    <button type="button" class="buttons btn-sm" onclick="aimChat.clearHistory();" title="Clear this chat">🧹 Clear</button>
+                </div>
+                <span id="aimConvStatus" class="text-secondary" style="font-size:11px;"></span>
             </div>
 
             <div class="aim-examples">
@@ -146,11 +134,15 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
             </div>
             <div class="aim-provider-bar" id="aimProviderBar">
                 <label for="aimConvProvider">🤖 Model for this chat</label>
-                <select id="aimConvProvider" class="form-select" style="flex:0 1 160px; max-width:170px; font-size:12px; font-weight:500;" onchange="aimConv.onProviderChange()"></select>
-                <select id="aimConvModel" class="form-select" style="flex:1 1 180px; max-width:300px; font-size:12px;" onchange="aimConv.onModelChange()"></select>
+                <select id="aimConvProvider" class="form-select" style="flex:0 1 150px; max-width:165px; font-size:12px; font-weight:500;" onchange="aimConv.onProviderChange()"></select>
+                <select id="aimConvModel" class="form-select" style="flex:1 1 160px; max-width:260px; font-size:12px;" onchange="aimConv.onModelChange()"></select>
                 <button type="button" class="buttons" onclick="aimConv.saveProvider()" title="Save this model for this conversation only" style="font-weight:600;">💾 Save</button>
                 <button type="button" class="buttons" onclick="aimConv.fetchModels(true)" title="Refresh model list from provider">↻</button>
-                <span id="aimConvProviderStatus" class="text-secondary" style="font-size:11px; flex:1;"></span>
+                <span id="aim-mode-badges" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                    <?php if (!empty($aimSettings['dry_run'])) echo '<span class="badge bg-warning text-dark" title="Proposed actions are not executed">DRY-RUN</span>'; ?>
+                    <?php if (!empty($aimSettings['auto_approve'])) echo '<span class="badge bg-success" title="Tools run automatically">✓ Auto-approve</span>'; else echo '<span class="badge bg-secondary" title="You must approve each tool">Manual approve</span>'; ?>
+                </span>
+                <span id="aimConvProviderStatus" class="text-secondary" style="font-size:11px;"></span>
             </div>
             <div class="aim-help">
                 💡 <b>Tip:</b> <b>Enter</b> to send, <b>Shift+Enter</b> for newline. Each reply may propose FPP actions — click <b>✓ Approve</b> to run them. Dry-run is off by default; toggle in <a href="plugin.php?plugin=fpp-AImode&page=config.php">Config</a>.
@@ -211,14 +203,16 @@ var aimChat = {
         $('#aimSendBtn').prop('disabled',true).val('…');
         $('#aimChatStatus').text('Thinking…');
         $('#aimThinking').addClass('show');
-        $('#aimThinkingText').text('Thinking… contacting ' + ($('#aim-cur-provider').text()||'AI'));
+        var _provLabel = $('#aimConvProvider').val() || $('#aimConvProvider option:selected').text() || 'AI';
+        $('#aimThinkingText').text('Thinking… contacting ' + _provLabel);
         var _start = Date.now();
         var _dots = 0;
         aimChat._thinkTimer = setInterval(function(){
             _dots = (_dots+1)%4;
             $('#aimThinkingDots').text('.'.repeat(_dots));
             var sec = Math.floor((Date.now()-_start)/1000);
-            $('#aimThinkingText').text('Thinking… contacting ' + ($('#aim-cur-provider').text()||'AI') + ' ('+sec+'s)');
+            var _p = $('#aimConvProvider').val() || $('#aimConvProvider option:selected').text() || 'AI';
+            $('#aimThinkingText').text('Thinking… contacting ' + _p + ' ('+sec+'s)');
             if(sec>8) $('#aimChatStatus').text('Thinking… '+sec+'s — multi-step tasks (list→create) may take 10-20s');
         }, 500);
         aimChat.addMsg('user', prompt);
@@ -369,7 +363,12 @@ var aimChat = {
             dataType:'json',
             success: function(d){
                 if(d.settings){
-                    $('#aim-cur-provider').text(d.settings.provider || '');
+                    // Keep bottom-bar badges in sync (dry-run / auto-approve)
+                    var badges = '';
+                    if(d.settings.dry_run) badges += '<span class="badge bg-warning text-dark" title="Proposed actions are not executed">DRY-RUN</span> ';
+                    if(d.settings.auto_approve) badges += '<span class="badge bg-success" title="Tools run automatically">✓ Auto-approve</span>';
+                    else badges += '<span class="badge bg-secondary" title="You must approve each tool">Manual approve</span>';
+                    $('#aim-mode-badges').html(badges);
                 }
             }
         });
