@@ -65,7 +65,7 @@ sudo chown -R fpp:fpp fpp-AImode
 | **Mistral** | … | `https://api.mistral.ai/v1` | `mistral-large-latest` (default) • `codestral-latest`, `mistral-small-latest` |
 | **Grok (xAI)** | `xai-…` | `https://api.x.ai/v1` | `grok-3` (default) • `grok-3-mini`, `grok-2`, `grok-beta` |
 | **OpenRouter** | `sk-or-…` | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` (default) • `openai/gpt-5`, `google/gemini-3.6-flash`, `anthropic/claude-opus-4`, `x-ai/grok-3` |
-| **Ollama** | *(none)* | `http://localhost:11434` | `llama3.1` (default) • `llama3.3`, `qwen2.5`, `qwen3`, `gemma3`, `phi4`, `deepseek-r1` |
+| **Ollama** | *(none)* | `— not installed` (set to `http://<ollama-host>:11434` if you have it) | `llama3.1` (default) • `llama3.3`, `qwen2.5`, `qwen3`, `gemma3`, `phi4`, `deepseek-r1` |
 | **Azure OpenAI** | Azure key | `https://{endpoint}.openai.azure.com` | your deployment name = model field (`gpt-4o`, `gpt-5`, `o3`) |
 
 > **Security:** Keys are stored in `/home/fpp/media/plugindata/fpp-AImode/settings.json` with `0600` (plugindata, not config, so crash bundles and backups never carry them in clear). Keys are never logged. Use FPP’s UI password if FPP is exposed.

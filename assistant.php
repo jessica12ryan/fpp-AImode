@@ -28,7 +28,7 @@ $aimProviders = [
     'mistral' => ['label'=>'Mistral','defaultBase'=>'https://api.mistral.ai/v1','models'=>['mistral-large-latest','mistral-small-latest','mistral-nemo','open-mistral-7b','mistral-large-2407','codestral-latest']],
     'grok' => ['label'=>'Grok (xAI)','defaultBase'=>'https://api.x.ai/v1','models'=>['grok-3','grok-3-mini','grok-3-fast','grok-2','grok-beta','grok-2-mini']],
     'openrouter' => ['label'=>'OpenRouter','defaultBase'=>'https://openrouter.ai/api/v1','models'=>['openai/gpt-4o','openai/gpt-4o-mini','openai/gpt-5','openai/gpt-5-mini','anthropic/claude-3.5-sonnet','anthropic/claude-opus-4','google/gemini-2.5-flash','google/gemini-3.6-flash','mistralai/mistral-large','x-ai/grok-3']],
-    'ollama' => ['label'=>'Ollama (Local)','defaultBase'=>'http://localhost:11434','models'=>['llama3.1','llama3.3','qwen2.5','qwen3','mistral','gemma2','gemma3','phi3','phi4','codellama','deepseek-r1']],
+    'ollama' => ['label'=>'Ollama (Local — not installed)','defaultBase'=>'','models'=>['llama3.1','llama3.3','qwen2.5','qwen3','mistral','gemma2','gemma3','phi3','phi4','codellama','deepseek-r1']],
     'azure' => ['label'=>'Azure OpenAI','defaultBase'=>'https://{your-endpoint}.openai.azure.com','models'=>['gpt-4o','gpt-4o-mini','gpt-35-turbo','gpt-5','gpt-5-mini','o3','o4-mini']],
 ];
 $_fppUiLevel = (int)($GLOBALS['settings']['uiLevel'] ?? $settings['uiLevel'] ?? 0);
@@ -684,6 +684,7 @@ var aimConv = {
         if(!prov) prov = $('#aimConvProvider').val();
         if(!prov) return;
         var sel = $('#aimConvModel');
+        var isOllama = prov==='ollama';
         // Immediate preset population so dropdown is never empty (shows instantly even if live fetch stalls)
         var presetImmediate = (typeof aimProviders !== 'undefined' && aimProviders && aimProviders[prov] && aimProviders[prov].models) ? aimProviders[prov].models : ((window.aimProviders && window.aimProviders[prov] && window.aimProviders[prov].models) ? window.aimProviders[prov].models : []);
         sel.empty();
@@ -692,12 +693,21 @@ var aimConv = {
             var curImm = aimConv._currentModel || '';
             if(curImm && presetImmediate.indexOf(curImm)===-1) sel.append($('<option>',{value:curImm,text:curImm+' (custom)'}));
             if(curImm) sel.val(curImm);
-            $('#aimConvProviderStatus').html('<span class="text-secondary">Preset '+presetImmediate.length+' — fetching live…</span>');
+            if(isOllama && !(aimConv._providerCache && aimConv._providerCache[prov] && aimConv._providerCache[prov].base_url)){
+                $('#aimConvProviderStatus').html('<span class="text-secondary">Preset '+presetImmediate.length+' — Ollama not installed</span>');
+            } else {
+                $('#aimConvProviderStatus').html('<span class="text-secondary">Preset '+presetImmediate.length+' — fetching live…</span>');
+            }
         } else {
             sel.append($('<option>',{value:'',text:'Loading…'}));
         }
         var provs = aimConv._providerCache || {};
         var cfg = provs[prov] || {};
+        // Ollama requires host — don't try localhost if not configured
+        if(isOllama && !cfg.base_url){
+            if(manual) $.jGrowl('Ollama host not set — Ollama not installed. Set host in Config to enable.',{themeState:'warning'});
+            return;
+        }
         var rawKey = cfg.api_key || '';
         if(rawKey && rawKey.indexOf('***')===0) rawKey = '';
         var payload = {provider: prov, api_key: rawKey, base_url: cfg.base_url || ''};

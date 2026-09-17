@@ -89,7 +89,7 @@ $showDevTab = $uiLevel >= 3;
                     <tr><td>Mistral</td><td><code>api.mistral.ai/v1</code></td><td><code>mistral-large-latest</code> (default) • <code>codestral-latest</code></td></tr>
                     <tr><td>Grok (xAI)</td><td>Key <code>xai-…</code>, <code>api.x.ai/v1</code></td><td><code>grok-3</code> (default) • <code>grok-3-mini</code>, <code>grok-2</code></td></tr>
                     <tr><td>OpenRouter</td><td>Key <code>sk-or-…</code>, <code>openrouter.ai/api/v1</code></td><td><code>openai/gpt-4o-mini</code> (default) • <code>google/gemini-3.6-flash</code>, <code>anthropic/claude-opus-4</code></td></tr>
-                    <tr><td>Ollama</td><td><i>No key</i>, set Base URL to <code>http://&lt;ollama-ip&gt;:11434</code></td><td><code>llama3.1</code> (default) • <code>llama3.3</code>, <code>qwen3</code>, <code>gemma3</code></td></tr>
+                    <tr><td>Ollama <span class="badge bg-secondary" style="font-size:10px;">Not installed</span></td><td><i>No key</i> — <b>not installed by default</b>. If you have Ollama, set Base URL to <code>http://&lt;ollama-ip&gt;:11434</code></td><td><code>llama3.1</code> (default) • <code>llama3.3</code>, <code>qwen3</code>, <code>gemma3</code></td></tr>
                     <tr><td>Azure</td><td>Azure key, Base URL <code>https://{endpoint}.openai.azure.com</code>, Model = deployment name</td><td><code>gpt-4o</code>, <code>gpt-5</code>, <code>o3</code></td></tr>
                 </tbody>
             </table>
@@ -98,17 +98,7 @@ $showDevTab = $uiLevel >= 3;
 
             <hr>
 
-            <h3>Voice Input</h3>
-            <p>
-                On the <b>Assistant</b> page, click <b>🎤 Voice Input</b> to transcribe speech via your browser's <b>Web Speech API</b> (works in Chrome/Edge on desktop, Safari on macOS/iOS). While the button shows <span class="text-danger">● Listening…</span> it captures audio; interim text appears below. When you stop, the final transcript is inserted into the prompt box for you to review — <b>only the text</b> is sent to the AI provider when you click <b>Send</b>. No audio leaves your device to FPP or the AI provider.
-            </p>
-            <ul>
-                <li>Choose a <b>language</b> from the dropdown or leave on <b>Auto</b> (uses your browser's language). The choice is saved per-browser in <code>localStorage</code>.</li>
-                <li>Tick <b>Auto-send</b> to automatically send the transcript when listening ends (off by default).</li>
-                <li>Requires <b>HTTPS or localhost</b> in most browsers and explicit microphone permission on first use. Look for the browser padlock → site settings → microphone.</li>
-                <li><b>Privacy:</b> transcription is done by the browser; Chrome may send audio to Google's speech service, Safari uses on-device/Apple. See your browser's privacy policy. The plugin itself stores no audio.</li>
-                <li>If voice shows <i>not supported</i>, use Chrome/Edge desktop — Firefox currently needs <code>media.webspeech.recognition.enable</code> in <code>about:config</code>.</li>
-            </ul>
+            <p class="text-secondary" style="font-size:12px;"><i>Voice input has been removed — use typed prompts in the Assistant.</i></p>
 
             <hr>
 

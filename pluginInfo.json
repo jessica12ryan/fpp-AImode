@@ -2,7 +2,7 @@
     "repoName": "fpp-AImode",
     "name": "AI Mode Plugin for FPP",
     "author": "jessica12ryan",
-    "description": "Configure and control Falcon Player (FPP) using natural language via major AI platforms \u2014 now with voice input. Link OpenAI, Anthropic, Google Gemini, Mistral, Grok, OpenRouter, Ollama and more with API tokens to create playlists, schedules, channel outputs and settings from typed or spoken prompts. Includes conversational assistant with browser voice transcription, tool-calling execution with approval, and full FPP API coverage.",
+    "description": "Configure and control Falcon Player (FPP) using natural language via major AI platforms. Link OpenAI, Anthropic, Google Gemini, Mistral, Grok, OpenRouter, Ollama (local, not installed by default) and more with API tokens to create playlists, schedules, channel outputs and settings from typed prompts. Includes conversational assistant with tool-calling execution with approval and full FPP API coverage.",
     "homeURL": "https://github.com/jessica12ryan/fpp-AImode",
     "srcURL": "https://github.com/jessica12ryan/fpp-AImode.git",
     "bugURL": "https://github.com/jessica12ryan/fpp-AImode/issues",
@@ -52,7 +52,7 @@
         }
     ],
     "privacy": {
-        "summary": "Sends prompts and FPP context to your chosen AI provider to generate config actions. Voice is transcribed in-browser; only text is sent. Nothing sent unless you click Send.",
+        "summary": "Sends prompts and FPP context to your chosen AI provider to generate config actions. Nothing sent unless you click Send.",
         "sends": [
             {
                 "to": "api.openai.com",
@@ -91,7 +91,7 @@
                 "alwaysOn": false
             },
             {
-                "to": "your Ollama host on your LAN",
+                "to": "your Ollama host on your LAN (if configured — not installed by default)",
                 "what": "prompt text, history and FPP context (playlists, schedules, settings)",
                 "why": "to interpret prompts locally without cloud",
                 "alwaysOn": false
@@ -100,12 +100,6 @@
                 "to": "your Azure OpenAI endpoint",
                 "what": "prompt text, history and FPP context (playlists, schedules, settings)",
                 "why": "to interpret prompts and generate configuration tool calls",
-                "alwaysOn": false
-            },
-            {
-                "to": "browser speech service (when using voice)",
-                "what": "microphone audio while Listening for transcription",
-                "why": "to convert voice to text in the browser before prompting",
                 "alwaysOn": false
             }
         ],
@@ -118,18 +112,11 @@
                 "where": "plugindata/fpp-AImode/settings.json"
             },
             {
-                "what": "conversation history including transcribed voice text",
+                "what": "conversation history",
                 "about": "operator",
                 "keptDays": 30,
                 "canDelete": true,
                 "where": "plugindata/fpp-AImode/history.json"
-            },
-            {
-                "what": "voice preferences (language, auto-send)",
-                "about": "operator",
-                "keptDays": null,
-                "canDelete": true,
-                "where": "browser localStorage fppAImode_voiceLang, fppAImode_voiceAutoSend"
             },
             {
                 "what": "logs",
@@ -139,15 +126,10 @@
                 "where": "plugin log"
             }
         ],
-        "sensors": [
-            {
-                "type": "microphone",
-                "stored": false
-            }
-        ],
+        "sensors": [],
         "remoteAccess": "none",
         "systemChanges": [],
         "closedCode": false,
-        "other": "API keys stored in plugindata with 0600. Use FPP UI password if exposed. Keys and audio never logged. Voice uses browser Web Speech API per browser privacy."
+        "other": "API keys stored in plugindata with 0600. Use FPP UI password if exposed. Keys never logged."
     }
 }

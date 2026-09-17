@@ -38,7 +38,7 @@ $aimProviders = [
     'mistral' => ['label'=>'Mistral','defaultBase'=>'https://api.mistral.ai/v1','models'=>['mistral-large-latest','mistral-small-latest','mistral-nemo','open-mistral-7b','mistral-large-2407','codestral-latest']],
     'grok' => ['label'=>'Grok (xAI)','defaultBase'=>'https://api.x.ai/v1','models'=>['grok-3','grok-3-mini','grok-3-fast','grok-2','grok-beta','grok-2-mini']],
     'openrouter' => ['label'=>'OpenRouter','defaultBase'=>'https://openrouter.ai/api/v1','models'=>['openai/gpt-4o','openai/gpt-4o-mini','openai/gpt-5','openai/gpt-5-mini','anthropic/claude-3.5-sonnet','anthropic/claude-opus-4','google/gemini-2.5-flash','google/gemini-3.6-flash','mistralai/mistral-large','x-ai/grok-3']],
-    'ollama' => ['label'=>'Ollama (Local)','defaultBase'=>'http://localhost:11434','models'=>['llama3.1','llama3.3','qwen2.5','qwen3','mistral','gemma2','gemma3','phi3','phi4','codellama','deepseek-r1']],
+    'ollama' => ['label'=>'Ollama (Local — not installed)','defaultBase'=>'','models'=>['llama3.1','llama3.3','qwen2.5','qwen3','mistral','gemma2','gemma3','phi3','phi4','codellama','deepseek-r1']],
     'azure' => ['label'=>'Azure OpenAI','defaultBase'=>'https://{your-endpoint}.openai.azure.com','models'=>['gpt-4o','gpt-4o-mini','gpt-35-turbo','gpt-5','gpt-5-mini','o3','o4-mini']],
 ];
 // Load settings and ensure providers map exists (migrate legacy)
@@ -306,11 +306,14 @@ var aimConfig = {
         var def = aimConfig._defaultProvider;
         Object.keys(aimProviders).forEach(function(k){
             var p = aimConfig._providers[k] || {api_key:'',model:'',base_url:''};
-            var configured = (p.api_key && p.api_key.length>0) || k==='ollama';
+            var isOllama = k==='ollama';
+            // Ollama requires explicit host config and local install — not enabled by default
+            var configured = (p.api_key && p.api_key.length>0) || (isOllama && p.base_url && p.base_url.length>0);
             var isDefault = k===def;
             var row = $('<tr>').addClass(isDefault?'table-info':'');
             row.append($('<td>').html('<b>'+aimProviders[k].label+'</b> ('+k+')' + (isDefault?' <span class="badge bg-primary">default</span>':'')));
-            row.append($('<td>').html(configured ? '<span class="text-success">✓</span> ' + (k==='ollama' ? 'local' : 'key set') : '<span class="text-secondary">—</span>'));
+            var statusHtml = configured ? '<span class="text-success">✓</span> ' + (isOllama ? 'host set' : 'key set') : (isOllama ? '<span class="text-secondary" title="Requires local Ollama install">— not installed</span>' : '<span class="text-secondary">—</span>');
+            row.append($('<td>').html(statusHtml));
             row.append($('<td>').text(p.model || aimProviders[k].models[0] || ''));
             row.append($('<td>').text(isDefault?'★':'' ));
             tbody.append(row);
@@ -318,10 +321,12 @@ var aimConfig = {
             var card = $('<div>').addClass('aim-overview-card' + (isDefault?' is-default':'' )).css('cursor','pointer').attr('title','Click to configure '+k).on('click', function(){ $('#aim_provider').val(k).trigger('change'); $('html,body').animate({scrollTop:$('#aim_provider').closest('fieldset').offset().top - 20}, 300); });
             var top = $('<div>').addClass('aim-card-top');
             top.append($('<span>').addClass('aim-card-title').html(aimProviders[k].label + (isDefault?' <span class="badge bg-primary" style="font-size:10px;">DEFAULT</span>':'')));
-            top.append($('<span>').html(configured ? '<span class="badge bg-success">✓ Ready</span>' : '<span class="badge bg-secondary">— Not set</span>'));
+            var badge = configured ? '<span class="badge bg-success">✓ Ready</span>' : (isOllama ? '<span class="badge bg-secondary" title="Requires local Ollama install">Not installed</span>' : '<span class="badge bg-secondary">— Not set</span>');
+            top.append($('<span>').html(badge));
             card.append(top);
             card.append($('<div>').addClass('aim-card-model').text((p.model || aimProviders[k].models[0] || '—') + ' · '+k));
             if(p.base_url) card.append($('<div>').css({fontSize:'10px', color:'var(--bs-secondary-color)', fontFamily:'monospace', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}).text(p.base_url));
+            else if(isOllama) card.append($('<div>').css({fontSize:'10px', color:'var(--bs-warning-text-emphasis)', fontStyle:'italic'}).text('Requires local install — set host to enable'));
             cards.append(card);
         });
     },
@@ -332,7 +337,9 @@ var aimConfig = {
         $('#aim_model').val(p.model || meta.models[0] || '');
         $('#aim_base_url').val(p.base_url || '');
         aimConfig.populateModels();
-        $('#aim_key_status').text(p.api_key ? '✓ key set' : (prov==='ollama'?'local':'—'));
+        var isOllama2 = prov==='ollama';
+        if(isOllama2) $('#aim_key_status').html(p.base_url ? '<span class="text-success">✓ host set</span>' : '<span class="text-warning">— not installed</span>');
+        else $('#aim_key_status').text(p.api_key ? '✓ key set' : '—');
         setTimeout(function(){ aimConfig.fetchModels(false); }, 400);
     },
     populateModels: function(fetched){
@@ -354,25 +361,47 @@ var aimConfig = {
         if (list.indexOf(cur)!==-1) sel.val(cur);
         else if (list.length && !cur) { sel.val(list[0]); $('#aim_model').val(list[0]); }
         else if (cur) sel.val(cur);
-        $('#aim_default_base').text(meta.defaultBase || '');
+        var isOllama = prov==='ollama';
+        $('#aim_default_base').text(meta.defaultBase || (isOllama ? '— not set (set host to enable)' : ''));
+        if(isOllama && !$('#aim_base_url').val()){
+            $('#aim_default_base').html('<span class="text-warning">— not set — Ollama not installed (enter host to enable)</span>');
+        }
         if (fetched) {
             $('#aim_models_status').html('<span class="text-success">✓ '+fetched.length+' live</span>');
             setTimeout(function(){ $('#aim_models_status').text(''); }, 4000);
+        } else if(isOllama && !$('#aim_base_url').val()){
+            $('#aim_models_status').html('<span class="text-secondary">Preset '+list.length+' — Ollama not installed</span>');
         } else if(!fetched && list.length && prov!=='ollama' && !$('#aim_api_key').val()){
             $('#aim_models_status').html('<span class="text-secondary">Preset '+list.length+' — enter key + ↻ for live</span>');
         } else if(!fetched && list.length){
             $('#aim_models_status').html('<span class="text-secondary">Preset '+list.length+' — fetching live…</span>');
         }
-        var hint=''; if(prov==='openai') hint='sk-…'; else if(prov==='anthropic') hint='sk-ant-…'; else if(prov==='google') hint='AIza…'; else if(prov==='grok') hint='xai-…'; else if(prov==='openrouter') hint='sk-or-…'; else if(prov==='ollama') hint='no key needed'; else if(prov==='azure') hint='Azure API key';
+        var hint=''; if(prov==='openai') hint='sk-…'; else if(prov==='anthropic') hint='sk-ant-…'; else if(prov==='google') hint='AIza…'; else if(prov==='grok') hint='xai-…'; else if(prov==='openrouter') hint='sk-or-…'; else if(isOllama) hint='no key — requires host'; else if(prov==='azure') hint='Azure API key';
         $('#aim_key_hint').text(hint ? 'Expected: '+hint : '');
-        if(prov==='ollama') $('#aim_api_key').attr('placeholder','No key needed for Ollama — will fetch live from '+ (meta.defaultBase || 'http://<ollama-ip>:11434')); else $('#aim_api_key').attr('placeholder','Paste your API key to fetch live models');
+        if(isOllama) $('#aim_api_key').attr('placeholder','No key needed — set Ollama host below if installed'); else $('#aim_api_key').attr('placeholder','Paste your API key to fetch live models');
+        if(isOllama) {
+            $('#aim_base_url').attr('placeholder','http://<ollama-host>:11434 — leave empty if not using Ollama');
+            if(!$('#aim_base_url').val()) $('#aim_base_url').css('border-color','var(--bs-warning)');
+            else $('#aim_base_url').css('border-color','');
+        } else {
+            $('#aim_base_url').attr('placeholder','Leave empty for default — e.g. https://your-endpoint.openai.azure.com');
+            $('#aim_base_url').css('border-color','');
+        }
     },
     fetchModels: function(manual){
         var prov = $('#aim_provider').val();
         var key = $('#aim_api_key').val();
         var base = $('#aim_base_url').val();
+        var isOllama = prov==='ollama';
+        // Ollama requires host to be set — not installed by default
+        if(isOllama && !base){
+            if(manual) $.jGrowl('Ollama host not set — Ollama not installed. Enter host (e.g. http://192.168.1.50:11434) to fetch live models.',{themeState:'warning'});
+            $('#aim_models_status').html('<span class="text-warning">Ollama not installed — set host to fetch live</span>');
+            aimConfig.populateModels();
+            return;
+        }
         // Always show preset immediately; dynamic fetch augments it
-        if (prov!=='ollama' && !key) {
+        if (!isOllama && !key) {
             if(manual) $.jGrowl('Enter API key for '+prov+' to fetch live models — showing preset '+ (aimProviders[prov]?aimProviders[prov].models.length:0) +' instead',{themeState:'warning'});
             $('#aim_models_status').html('<span class="text-warning">Preset '+ (aimProviders[prov]?aimProviders[prov].models.length:0) +' — need key for live</span>');
             // Still populate preset so dropdown is never empty

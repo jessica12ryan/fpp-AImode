@@ -96,8 +96,8 @@ function aimGetProviders() {
             'needsKey' => true,
         ],
         'ollama' => [
-            'label' => 'Ollama (Local)',
-            'defaultBase' => 'http://localhost:11434',
+            'label' => 'Ollama (Local — not installed)',
+            'defaultBase' => '',
             'defaultModel' => 'llama3.1',
             'models' => ['llama3.1','llama3.3','qwen2.5','qwen3','mistral','gemma2','gemma3','phi3','phi4','codellama','deepseek-r1'],
             'auth' => 'none',
@@ -1348,24 +1348,28 @@ function aimDiagnosticsEndpoint() {
     $needsKey = $providers[$provider]['needsKey'] ?? true;
     $checks[] = ['check'=>'API key configured','ok'=> !$needsKey || !empty($settings['api_key']), 'detail'=> $needsKey ? (!empty($settings['api_key']) ? 'present' : 'missing') : 'not required (Ollama)'];
     $checks[] = ['check'=>'Model selected','ok'=> !empty($settings['model']), 'detail'=> $settings['model'] ?? ''];
-    $checks[] = ['check'=>'Base URL','ok'=> !empty($base), 'detail'=> $base];
+    $checks[] = ['check'=>'Base URL','ok'=> $provider !== 'ollama' ? !empty($base) : true, 'detail'=> $base ?: ($provider==='ollama' ? 'not set — Ollama requires local install + host' : 'empty (using default)')];
     $checks[] = ['check'=>'PHP curl','ok'=> function_exists('curl_init'), 'detail'=> function_exists('curl_init') ? 'available' : 'missing'];
     $checks[] = ['check'=>'FPP reachable','ok'=> aimFppGet('/api/fppd/status', 2) !== null, 'detail'=> aimFppGet('/api/fppd/status', 2) ? 'ok' : 'unreachable'];
 
-    // 2. Ollama local check if selected
+    // 2. Ollama local check if selected — only if host configured
     if ($provider === 'ollama') {
-        $ollamaUp = false; $detail = 'not reachable';
-        $ch = curl_init(rtrim($base,'/') . '/api/tags');
-        if ($ch) {
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 3);
-            $resp = @curl_exec($ch);
-            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            if (function_exists("curl_close") && version_compare(PHP_VERSION, "8.0", "<")) @curl_close($ch);
-            if ($code === 200 && $resp) { $ollamaUp = true; $detail = 'reachable'; }
-            else $detail = 'HTTP ' . $code;
+        if (empty($base)) {
+            $checks[] = ['check'=>'Ollama reachable','ok'=>false,'detail'=> 'Host not set — Ollama not installed. Set Base URL to http://<ollama-host>:11434 to enable.'];
+        } else {
+            $ollamaUp = false; $detail = 'not reachable';
+            $ch = curl_init(rtrim($base,'/') . '/api/tags');
+            if ($ch) {
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+                $resp = @curl_exec($ch);
+                $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                if (function_exists("curl_close") && version_compare(PHP_VERSION, "8.0", "<")) @curl_close($ch);
+                if ($code === 200 && $resp) { $ollamaUp = true; $detail = 'reachable'; }
+                else $detail = 'HTTP ' . $code;
+            }
+            $checks[] = ['check'=>'Ollama reachable','ok'=>$ollamaUp,'detail'=> rtrim($base,'/') . '/api/tags: ' . $detail . ($ollamaUp ? '' : ' — is Ollama running on that host?')];
         }
-        $checks[] = ['check'=>'Ollama reachable','ok'=>$ollamaUp,'detail'=> rtrim($base,'/') . '/api/tags: ' . $detail];
     }
 
     $allOk = true;
