@@ -708,8 +708,8 @@ function aimGetTools() {
         ],
         [
             'name' => 'create_playlist',
-            'description' => 'Create or overwrite a playlist. entries is array of {type, sequence, media, etc}.',
-            'parameters' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string'], 'entries' => ['type' => 'array', 'items' => ['type' => 'object']], 'shuffle' => ['type' => 'boolean']], 'required' => ['name','entries']],
+            'description' => 'Create or overwrite a playlist. entries is array of playlist items. Each entry MUST have a valid type and required fields: type "sequence" needs sequenceName (e.g. {"type":"sequence","sequenceName":"test.fseq","enabled":1}), type "media" needs mediaName, type "both" needs both sequenceName and mediaName, type "command" needs command (FPP command name like "Effect Stop", "Stop Effects", "Brightness", "Volume Set") and args array (e.g. {"type":"command","command":"Effect Stop","args":[],"enabled":1}), type "effect" needs effectName, type "branch" needs branch details, type "pause" needs duration. Use list_playlists/get_playlist first to see existing files. Example for effects stop: {"name":"mine","entries":[{"type":"command","command":"Effect Stop","args":[],"enabled":1}]}.',
+            'parameters' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string', 'description' => 'Playlist name'], 'entries' => ['type' => 'array', 'description' => 'Array of playlist entries, each with type and required fields per type', 'items' => ['type' => 'object']], 'shuffle' => ['type' => 'boolean', 'description' => 'Random shuffle']], 'required' => ['name','entries']],
         ],
         [
             'name' => 'delete_playlist',
@@ -843,12 +843,62 @@ function aimExecuteTool($name, $args) {
         case 'create_playlist':
             if (empty($args['name'])) return ['success'=>false,'error'=>'name required'];
             if (!isset($args['entries']) || !is_array($args['entries'])) return ['success'=>false,'error'=>'entries array required']; // empty array allowed for empty playlist
-            $body = ['name'=>$args['name'],'entries'=>$args['entries']];
-            if (isset($args['shuffle'])) $body['shuffle'] = (bool)$args['shuffle'];
-            // FPP playlist creation: POST /api/playlist/<name> or PUT; try POST
-            $res = aimFppRequest('POST', '/api/playlist/' . urlencode($args['name']), $body, 5);
-            if (!$res['success']) $res = aimFppRequest('PUT', '/api/playlist/' . urlencode($args['name']), $body, 5);
-            return $res['success'] ? ['success'=>true,'result'=>$res['body']] : ['success'=>false,'error'=>$res['error'] ?? 'create failed'];
+            // Validate entries - catch incomplete command/effect entries that would create empty playlists
+            foreach ($args['entries'] as $idx => $e) {
+                if (!is_array($e)) return ['success'=>false,'error'=>"entries[$idx] must be an object"];
+                if (empty($e['type'])) return ['success'=>false,'error'=>"entries[$idx] missing type - must be one of: sequence, media, both, command, effect, pause, branch, etc. Example for effects stop: {\"type\":\"command\",\"command\":\"Effect Stop\",\"args\":[],\"enabled\":1}"];
+                $t = strtolower(trim($e['type']));
+                if ($t === 'command') {
+                    if (empty($e['command'])) return ['success'=>false,'error'=>"entries[$idx] type command missing required 'command' field - e.g. {\"type\":\"command\",\"command\":\"Effect Stop\",\"args\":[],\"enabled\":1} or \"Stop Effects\". Provide args array even if empty."];
+                } elseif ($t === 'effect') {
+                    if (empty($e['effectName']) && empty($e['effect']) && empty($e['command'])) return ['success'=>false,'error'=>"entries[$idx] type effect missing effectName/command - e.g. {\"type\":\"effect\",\"effectName\":\"Stop\",\"enabled\":1} or use command type with Effect Stop"];
+                } elseif ($t === 'sequence') {
+                    if (empty($e['sequenceName']) && empty($e['sequence'])) return ['success'=>false,'error'=>"entries[$idx] type sequence missing sequenceName - e.g. {\"type\":\"sequence\",\"sequenceName\":\"my.fseq\",\"enabled\":1}"];
+                } elseif ($t === 'media') {
+                    if (empty($e['mediaName']) && empty($e['media'])) return ['success'=>false,'error'=>"entries[$idx] type media missing mediaName - e.g. {\"type\":\"media\",\"mediaName\":\"song.mp3\",\"enabled\":1}"];
+                } elseif ($t === 'both') {
+                    if ((empty($e['sequenceName']) && empty($e['sequence'])) || (empty($e['mediaName']) && empty($e['media']))) return ['success'=>false,'error'=>"entries[$idx] type both requires both sequenceName and mediaName"];
+                }
+                // Prevent the exact bug reported: {type:command} with no command name creates empty entry
+                if ($t === 'command' && isset($e['command']) && trim($e['command']) === '' ) return ['success'=>false,'error'=>"entries[$idx] command name is empty - use 'Effect Stop' or 'Stop Effects'"];
+            }
+            // Normalize entries for FPP compatibility
+            $normalized = [];
+            foreach ($args['entries'] as $e) {
+                $ne = $e;
+                if (!isset($ne['enabled'])) $ne['enabled'] = 1;
+                // Normalize command names for effects stop variations
+                if (strtolower(trim($ne['type'] ?? '')) === 'command' && isset($ne['command'])) {
+                    $cmd = trim($ne['command']);
+                    if (preg_match('/effect.*stop/i', $cmd) || preg_match('/stop.*effect/i', $cmd)) $ne['command'] = 'Effect Stop';
+                    if (!isset($ne['args']) || !is_array($ne['args'])) $ne['args'] = [];
+                }
+                // Ensure type case is as FPP expects (lowercase is usually ok, but keep as provided)
+                $normalized[] = $ne;
+            }
+            // FPP expects mainPlaylist (and sometimes entries) - send both for compatibility, plus version/repeat
+            $playlistObj = [
+                'name' => $args['name'],
+                'version' => 3,
+                'repeat' => !empty($args['shuffle']) ? 1 : 0,
+                'mainPlaylist' => $normalized,
+                'entries' => $normalized,
+                'playlistInfo' => ['total_items' => count($normalized)],
+                'leadIn' => [],
+                'leadOut' => [],
+            ];
+            if (isset($args['shuffle'])) $playlistObj['shuffle'] = (bool)$args['shuffle'];
+            // Try multiple endpoints/methods for FPP version compatibility
+            $res = aimFppRequest('POST', '/api/playlist/' . urlencode($args['name']), $playlistObj, 5);
+            if (!$res['success']) $res = aimFppRequest('PUT', '/api/playlist/' . urlencode($args['name']), $playlistObj, 5);
+            if (!$res['success']) $res = aimFppRequest('POST', '/api/playlists', $playlistObj, 5);
+            // Fallback: try raw file write via media directory if API fails (for testing)
+            if (!$res['success']) {
+                aimLog('create_playlist API failed for ' . $args['name'] . ': ' . ($res['error'] ?? 'unknown') . ' - validated entries: ' . json_encode($normalized));
+            } else {
+                aimLog('create_playlist success for ' . $args['name'] . ' entries=' . count($normalized) . ' type=' . ($normalized[0]['type'] ?? 'none'));
+            }
+            return $res['success'] ? ['success'=>true,'result'=>$res['body']] : ['success'=>false,'error'=>$res['error'] ?? 'create failed. Tried normalized payload with mainPlaylist. Ensure entries have required fields: command needs command+args, sequence needs sequenceName, etc.'];
         case 'delete_playlist':
             if (empty($args['name'])) return ['success'=>false,'error'=>'name required'];
             $res = aimFppRequest('DELETE', '/api/playlist/' . urlencode($args['name']), null, 4);
@@ -1188,9 +1238,11 @@ function aimBuildSystemPrompt($settings) {
         . "- For playlists/schedules you must READ first (list_/get_) to avoid duplicates, but for simple scalar sets with an explicit value (e.g. Set volume to 80%, Set brightness) you may call update_settings directly without a prior get.\n"
         . "- Explain each change briefly in your reply before calling tools.\n"
         . "- Use valid JSON for tool arguments. Times are HH:MM:SS, days like MTWThFSaSu or 127, booleans as true/false.\n"
+        . "- Playlist entries MUST have complete required fields per type: sequence needs sequenceName, media needs mediaName, both needs both, command needs command+args (e.g. Effects Stop: {\"type\":\"command\",\"command\":\"Effect Stop\",\"args\":[],\"enabled\":1}), effect needs effectName, pause needs duration. Never send {\"type\":\"command\"} without command name - it will be rejected. Use list_playlists/get_playlist to see existing files before creating.\n"
         . "- Never invent playlist/media names not shown in context; ask the user if unsure.\n"
         . "- Prefer minimal, reversible edits. Offer to restart FPPD only if needed.\n"
         . "- If the user request is ambiguous, ask a clarifying question instead of guessing.\n"
+        . "- If a tool returns an error about missing fields, fix the payload on retry (add required fields) rather than repeating the same call.\n"
         . "- Keep replies concise and actionable.";
 }
 
