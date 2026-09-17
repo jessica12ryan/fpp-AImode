@@ -96,14 +96,7 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
                 <button type="button" class="buttons" onclick="aimConv.delete()" title="Delete current">Delete</button>
                 <span id="aimConvStatus" class="text-secondary" style="font-size:11px; flex:1;"></span>
             </div>
-            <div id="aimConvProviderBar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; padding:8px; border:1px dashed var(--bs-border-color); border-radius:6px; background:var(--bs-tertiary-bg);">
-                <span class="text-secondary" style="font-size:12px; white-space:nowrap;">Provider for this conversation:</span>
-                <select id="aimConvProvider" class="form-select" style="flex:0 1 160px; max-width:180px; font-size:12px;" onchange="aimConv.onProviderChange()"></select>
-                <select id="aimConvModel" class="form-select" style="flex:1 1 160px; max-width:260px; font-size:12px;" onchange="aimConv.onModelChange()"></select>
-                <button type="button" class="buttons" onclick="aimConv.saveProvider()" title="Save provider/model for this conversation">Save</button>
-                <button type="button" class="buttons" onclick="aimConv.fetchModels(true)" title="Refresh models">↻</button>
-                <span id="aimConvProviderStatus" class="text-secondary" style="font-size:11px;"></span>
-            </div>
+
 
             <div class="aim-examples">
                 <span class="text-secondary" style="font-size:12px; align-self:center;">Try:</span>
@@ -126,29 +119,39 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
                     <span id="aimChatStatus" class="text-secondary" style="font-size:11px; text-align:center;"></span>
                 </div>
             </div>
-            <div class="aim-voice-bar" id="aimVoiceBar">
-                <button type="button" class="btn-mic" id="aimMicBtn" onclick="aimVoice.toggle();" title="Start/stop voice input">🎤 Voice Input</button>
-                <select id="aimVoiceLang" title="Voice language" class="form-select d-inline-block" style="max-width:10rem; width:auto; font-size:12px;">
-                    <option value="">Auto (browser)</option>
-                    <option value="en-US">English (US)</option>
-                    <option value="en-GB">English (UK)</option>
-                    <option value="en-AU">English (AU)</option>
-                    <option value="es-ES">Español (ES)</option>
-                    <option value="es-US">Español (US)</option>
-                    <option value="fr-FR">Français</option>
-                    <option value="de-DE">Deutsch</option>
-                    <option value="it-IT">Italiano</option>
-                    <option value="pt-BR">Português (BR)</option>
-                    <option value="nl-NL">Nederlands</option>
-                    <option value="ja-JP">日本語</option>
-                    <option value="ko-KR">한국어</option>
-                    <option value="zh-CN">中文 (简体)</option>
-                </select>
-                <label style="font-size:12px; display:inline-flex; align-items:center; gap:4px; margin:0;">
-                    <input type="checkbox" id="aimVoiceAutoSend"> Auto-send
-                </label>
-                <span id="aimVoiceStatus" class="text-secondary" style="font-size:12px; flex:1;"></span>
-                <span id="aimVoiceSupport" class="text-secondary" style="font-size:11px;"></span>
+            <div class="aim-voice-bar" id="aimVoiceBar" style="flex-direction:column; align-items:stretch;">
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <span class="text-secondary" style="font-size:12px; white-space:nowrap;">Provider for this conversation:</span>
+                    <select id="aimConvProvider" class="form-select" style="flex:0 1 160px; max-width:180px; font-size:12px;" onchange="aimConv.onProviderChange()"></select>
+                    <select id="aimConvModel" class="form-select" style="flex:1 1 160px; max-width:260px; font-size:12px;" onchange="aimConv.onModelChange()"></select>
+                    <button type="button" class="buttons" onclick="aimConv.saveProvider()" title="Save provider/model for this conversation">Save</button>
+                    <button type="button" class="buttons" onclick="aimConv.fetchModels(true)" title="Refresh models">↻</button>
+                    <span id="aimConvProviderStatus" class="text-secondary" style="font-size:11px;"></span>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; padding-top:8px; border-top:1px dashed var(--bs-border-color);">
+                    <button type="button" class="btn-mic" id="aimMicBtn" onclick="aimVoice.toggle();" title="Start/stop voice input">🎤 Voice Input</button>
+                    <select id="aimVoiceLang" title="Voice language" class="form-select d-inline-block" style="max-width:10rem; width:auto; font-size:12px;">
+                        <option value="">Auto (browser)</option>
+                        <option value="en-US">English (US)</option>
+                        <option value="en-GB">English (UK)</option>
+                        <option value="en-AU">English (AU)</option>
+                        <option value="es-ES">Español (ES)</option>
+                        <option value="es-US">Español (US)</option>
+                        <option value="fr-FR">Français</option>
+                        <option value="de-DE">Deutsch</option>
+                        <option value="it-IT">Italiano</option>
+                        <option value="pt-BR">Português (BR)</option>
+                        <option value="nl-NL">Nederlands</option>
+                        <option value="ja-JP">日本語</option>
+                        <option value="ko-KR">한국어</option>
+                        <option value="zh-CN">中文 (简体)</option>
+                    </select>
+                    <label style="font-size:12px; display:inline-flex; align-items:center; gap:4px; margin:0;">
+                        <input type="checkbox" id="aimVoiceAutoSend"> Auto-send
+                    </label>
+                    <span id="aimVoiceStatus" class="text-secondary" style="font-size:12px; flex:1;"></span>
+                    <span id="aimVoiceSupport" class="text-secondary" style="font-size:11px;"></span>
+                </div>
             </div>
             <div class="aim-interim" id="aimVoiceInterim"></div>
             <div class="text-secondary" style="font-size:11px;">
