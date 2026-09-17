@@ -504,13 +504,18 @@ function aimGetConversation($id) {
     $data = json_decode($raw ?: '', true);
     return is_array($data) ? $data : null;
 }
-function aimCreateConversation($title = null) {
+function aimCreateConversation($title = null, $provider = null, $model = null) {
     aimEnsureConversationsMigrated();
     $id = 'conv_' . substr(md5(uniqid('', true) . microtime()), 0, 12);
     if (!$title || trim($title)==='') $title = 'Chat ' . date('Y-m-d H:i');
     $title = (function_exists('mb_substr') ? mb_substr(trim($title), 0, 80) : substr(trim($title), 0, 80));
     $now = date('Y-m-d H:i:s');
-    $conv = ['id'=>$id,'title'=>$title,'created'=>$now,'updated'=>$now,'status'=>'idle','messages'=>[]];
+    $settings = aimLoadSettings();
+    $defProv = $settings['defaultProvider'] ?? $settings['provider'] ?? 'openai';
+    if (!$provider) $provider = $defProv;
+    $cfg = aimGetProviderConfig($settings, $provider);
+    if (!$model) $model = $cfg['model'] ?? '';
+    $conv = ['id'=>$id,'title'=>$title,'created'=>$now,'updated'=>$now,'status'=>'idle','provider'=>$provider,'model'=>$model,'messages'=>[]];
     aimSaveConversation($conv);
     return $conv;
 }
@@ -1550,10 +1555,14 @@ function aimChatEndpoint() {
     if ($prompt === '') return json(['success'=>false,'error'=>'Prompt is required']);
 
     $settings = aimLoadSettings();
-    // Resolve default provider config — new conversations automatically use defaultProvider
-    $defProvider = $settings['defaultProvider'] ?? $settings['provider'] ?? 'openai';
+    // Resolve provider — per-conversation override takes precedence, then defaultProvider, then per-request override
+    $convProvider = $conv['provider'] ?? null;
+    $convModel = $conv['model'] ?? null;
+    $defProvider = $convProvider ?: ($settings['defaultProvider'] ?? $settings['provider'] ?? 'openai');
     $effective = aimGetProviderConfig($settings, $defProvider);
-    // Allow per-request override of provider/model (for testing or per-conversation provider switch)
+    // If conversation has stored model, use it (unless per-request overrides)
+    if ($convModel && $convModel !== '') $effective['model'] = $convModel;
+    // Allow per-request override of provider/model (for testing or per-conversation switch)
     $reqProvider = trim((string)($body['provider'] ?? ''));
     if ($reqProvider && aimProviderExists($reqProvider)) {
         $defProvider = $reqProvider;
@@ -1561,6 +1570,13 @@ function aimChatEndpoint() {
         if (isset($body['api_key']) && $body['api_key'] !== '') $effective['api_key'] = trim((string)$body['api_key']);
         if (isset($body['model']) && $body['model'] !== '') $effective['model'] = trim((string)$body['model']);
         if (isset($body['base_url']) && $body['base_url'] !== '') $effective['base_url'] = trim((string)$body['base_url']);
+        // Persist per-conversation provider/model if changed via request
+        $conv['provider'] = $effective['provider'];
+        $conv['model'] = $effective['model'];
+        aimSaveConversation($conv);
+    } else if ($convProvider && $convProvider !== $defProvider) {
+        // Ensure conversation's provider is reflected in effective for logging
+        $effective['provider'] = $convProvider;
     }
     // Merge effective into settings copy for provider calls
     $effSettings = $settings;
@@ -1812,6 +1828,8 @@ function aimConversationUpdateEndpoint() {
     $conv = aimGetConversation($id);
     if (!$conv) return json(['success'=>false,'error'=>'Conversation not found']);
     if (isset($body['title'])) $conv['title'] = (function_exists('mb_substr') ? mb_substr(trim($body['title']), 0, 80) : substr(trim($body['title']), 0, 80));
+    if (isset($body['provider']) && aimProviderExists($body['provider'])) $conv['provider'] = $body['provider'];
+    if (isset($body['model'])) $conv['model'] = trim((string)$body['model']);
     // Allow status update if caller is internal (not exposed to UI normally)
     if (isset($body['status'])) $conv['status'] = $body['status'];
     aimSaveConversation($conv);

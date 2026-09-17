@@ -96,6 +96,14 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
                 <button type="button" class="buttons" onclick="aimConv.delete()" title="Delete current">Delete</button>
                 <span id="aimConvStatus" class="text-secondary" style="font-size:11px; flex:1;"></span>
             </div>
+            <div id="aimConvProviderBar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; padding:8px; border:1px dashed var(--bs-border-color); border-radius:6px; background:var(--bs-tertiary-bg);">
+                <span class="text-secondary" style="font-size:12px; white-space:nowrap;">Provider for this conversation:</span>
+                <select id="aimConvProvider" class="form-select" style="flex:0 1 160px; max-width:180px; font-size:12px;" onchange="aimConv.onProviderChange()"></select>
+                <select id="aimConvModel" class="form-select" style="flex:1 1 160px; max-width:260px; font-size:12px;" onchange="aimConv.onModelChange()"></select>
+                <button type="button" class="buttons" onclick="aimConv.saveProvider()" title="Save provider/model for this conversation">Save</button>
+                <button type="button" class="buttons" onclick="aimConv.fetchModels(true)" title="Refresh models">↻</button>
+                <span id="aimConvProviderStatus" class="text-secondary" style="font-size:11px;"></span>
+            </div>
 
             <div class="aim-examples">
                 <span class="text-secondary" style="font-size:12px; align-self:center;">Try:</span>
@@ -430,6 +438,16 @@ var aimConv = {
             success: function(r){
                 if(!r.success || !r.conversation) return;
                 var conv = r.conversation;
+                // Update per-conversation provider bar
+                aimConv._currentModel = conv.model || '';
+                var prov = conv.provider || aimConv._defaultProvider || 'openai';
+                // Ensure provider select is populated
+                aimConv.populateProviderSelect();
+                setTimeout(function(){
+                    $('#aimConvProvider').val(prov);
+                    aimConv.fetchModelsForProvider(prov);
+                    setTimeout(function(){ if(conv.model) $('#aimConvModel').val(conv.model); }, 400);
+                }, 100);
                 $('#aimMessages').empty();
                 if(!conv.messages || !conv.messages.length){
                     $('#aimMessages').html('<div class="aim-msg aim-msg-system">No messages yet. Try one of the examples above.</div>');
@@ -576,10 +594,131 @@ var aimConv = {
                 }
             }
         });
+    },
+    // Per-conversation provider/model
+    _providerCache: null,
+    ensureProviders: function(cb){
+        if(aimConv._providerCache) { if(cb) cb(aimConv._providerCache); return; }
+        $.ajax({
+            url:'api/plugin/fpp-AImode/status',
+            type:'GET',
+            dataType:'json',
+            success: function(r){
+                var provs = {};
+                if(r.providers) provs = r.providers;
+                else if(r.provider_meta) provs[r.settings.provider] = r.provider_meta;
+                aimConv._providerCache = provs;
+                // Also cache default
+                aimConv._defaultProvider = r.defaultProvider || r.settings.defaultProvider || r.settings.provider;
+                if(cb) cb(provs);
+            }
+        });
+    },
+    populateProviderSelect: function(){
+        aimConv.ensureProviders(function(provs){
+            var sel = $('#aimConvProvider').empty();
+            // Use global aimProviders if available (from config), else use fetched
+            var list = window.aimProviders || {};
+            // If list empty, use provs keys
+            var keys = Object.keys(list);
+            if(keys.length===0) keys = Object.keys(provs);
+            if(keys.length===0) keys = ['openai','anthropic','google','mistral','grok','openrouter','ollama','azure'];
+            keys.forEach(function(k){
+                var label = (list[k] && list[k].label) ? list[k].label : k;
+                sel.append($('<option>',{value:k,text:label+' ('+k+')'}));
+            });
+        });
+    },
+    onProviderChange: function(){
+        var prov = $('#aimConvProvider').val();
+        // Fetch models for this provider and populate model select
+        aimConv.fetchModelsForProvider(prov);
+    },
+    onModelChange: function(){
+        // Model changed, mark dirty
+        $('#aimConvProviderStatus').html('<span class="text-warning">• unsaved</span>');
+    },
+    fetchModelsForProvider: function(prov, manual){
+        var sel = $('#aimConvModel').empty().append($('<option>',{value:'',text:'Loading…'}));
+        // Use saved api_key/base_url for this provider if available
+        var provs = aimConv._providerCache || {};
+        var cfg = provs[prov] || {};
+        var rawKey = cfg.api_key || '';
+        // Don't send redacted key (***), let server use saved key
+        if(rawKey && rawKey.indexOf('***')===0) rawKey = '';
+        var payload = {provider: prov, api_key: rawKey, base_url: cfg.base_url || ''};
+        // If no key and not ollama, just use preset list from window.aimProviders
+        if(prov!=='ollama' && !payload.api_key){
+            var preset = (window.aimProviders && window.aimProviders[prov] && window.aimProviders[prov].models) ? window.aimProviders[prov].models : [];
+            sel.empty();
+            preset.forEach(function(m){ sel.append($('<option>',{value:m,text:m})); });
+            // Keep current conversation model if set
+            var cur = aimConv._currentModel || '';
+            if(cur && preset.indexOf(cur)===-1) sel.append($('<option>',{value:cur,text:cur+' (custom)'}));
+            if(cur) sel.val(cur);
+            $('#aimConvProviderStatus').html('<span class="text-secondary">Using preset list (no key)</span>');
+            return;
+        }
+        $.ajax({
+            url:'api/plugin/fpp-AImode/models',
+            type:'POST',
+            contentType:'application/json',
+            data: JSON.stringify(payload),
+            dataType:'json',
+            success: function(r){
+                sel.empty();
+                if(r.success && r.models && r.models.length){
+                    r.models.forEach(function(m){ sel.append($('<option>',{value:m,text:m})); });
+                    var cur2 = aimConv._currentModel || '';
+                    if(cur2 && r.models.indexOf(cur2)===-1) sel.append($('<option>',{value:cur2,text:cur2+' (custom)'}));
+                    if(cur2) sel.val(cur2);
+                    $('#aimConvProviderStatus').html('<span class="text-success">✓ '+r.models.length+' models</span>');
+                    setTimeout(function(){ $('#aimConvProviderStatus').text(''); }, 3000);
+                } else {
+                    sel.append($('<option>',{value:'',text:'No models'}));
+                    $('#aimConvProviderStatus').html('<span class="text-danger">'+(r.error||'Failed')+'</span>');
+                }
+            },
+            error: function(xhr){
+                var m='Could not fetch'; try{var j=JSON.parse(xhr.responseText); if(j.error) m=j.error;}catch(e){}
+                sel.empty().append($('<option>',{value:'',text:'Error'}));
+                $('#aimConvProviderStatus').html('<span class="text-danger">'+m+'</span>');
+            }
+        });
+    },
+    saveProvider: function(){
+        var prov = $('#aimConvProvider').val();
+        var model = $('#aimConvModel').val() || $('#aimConvModel').find('option:selected').val();
+        if(!prov || !model){ $.jGrowl('Provider and model required',{themeState:'error'}); return; }
+        var id = aimConv.currentId;
+        if(!id){ $.jGrowl('No conversation selected',{themeState:'error'}); return; }
+        $('#aimConvProviderStatus').html('<span class="text-secondary">Saving…</span>');
+        $.ajax({
+            url:'api/plugin/fpp-AImode/conversations/'+encodeURIComponent(id)+'/update',
+            type:'POST',
+            contentType:'application/json',
+            data: JSON.stringify({provider: prov, model: model}),
+            dataType:'json',
+            success: function(r){
+                if(r.success){
+                    $('#aimConvProviderStatus').html('<span class="text-success">✓ Saved</span>');
+                    $.jGrowl('Provider saved for this conversation',{themeState:'success'});
+                    aimConv.refreshList();
+                    setTimeout(function(){ $('#aimConvProviderStatus').text(''); }, 3000);
+                } else {
+                    $('#aimConvProviderStatus').html('<span class="text-danger">'+(r.error||'Failed')+'</span>');
+                }
+            },
+            error: function(xhr){
+                var m='Could not save'; try{var j=JSON.parse(xhr.responseText); if(j.error) m=j.error;}catch(e){}
+                $('#aimConvProviderStatus').html('<span class="text-danger">'+m+'</span>');
+            }
+        });
     }
 };
 
 $(document).ready(function(){
+    aimConv.populateProviderSelect();
     aimConv.refreshList();
     setInterval(aimChat.refreshStatus, 15000);
     // Background thinking poll — survives page refresh/navigation
