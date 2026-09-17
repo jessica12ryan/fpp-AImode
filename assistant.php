@@ -501,7 +501,7 @@ var aimConv = {
             success: function(r){
                 if(!r.success || !r.conversation) return;
                 var conv = r.conversation;
-                // Update per-conversation provider bar (bottom bar with voice/auto-send)
+                // Update per-conversation provider bar (bottom bar)
                 aimConv._currentModel = conv.model || '';
                 var prov = conv.provider || aimConv._defaultProvider || 'openai';
                 aimConv.populateProviderSelect();

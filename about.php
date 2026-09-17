@@ -29,16 +29,15 @@ $showDevTab = $uiLevel >= 3;
 
                 <p>
                     Natural-language configuration for <b>Falcon Player (FPP)</b> — describe what you want
-                    (typed or spoken via <b>🎤 Voice Input</b>), and the AI builds the playlists, schedules, settings, and outputs for you.
+                    in plain English, and the AI builds the playlists, schedules, settings, and outputs for you.
                 </p>
 
                 <h4>Features</h4>
                 <ul>
-                    <li>8 providers: OpenAI, Anthropic (Claude), Google Gemini, Mistral, Grok (xAI), OpenRouter, Ollama (local), Azure OpenAI</li>
+                    <li>8 providers: OpenAI, Anthropic (Claude), Google Gemini, Mistral, Grok (xAI), OpenRouter, Ollama (local — not installed by default), Azure OpenAI</li>
                     <li>Switch providers with one dropdown — API token / base URL / model per provider</li>
                     <li>Custom system prompt &amp; tunable temperature / max tokens</li>
-                    <li>Conversational assistant with history, tool-call approval, dry-run &amp; auto-approve</li>
-                    <li><b>Voice input</b> via browser Web Speech API — mic → transcript → prompt (audio never sent to FPP or AI provider)</li>
+                    <li>Conversational assistant with history, tool-call approval, dry-run &amp; auto-approve, verbose toggle (hide/show tool JSON)</li>
                     <li>FPP-aware: injects live status, playlists, settings, and outputs so the AI knows your show</li>
                     <li>Tool calling for: status, settings, playlists, schedules, outputs, system info, restart</li>
                     <li>Redacted logs, 0600 key storage, no background transmission</li>
@@ -57,7 +56,7 @@ $showDevTab = $uiLevel >= 3;
                 <h4>Privacy</h4>
                 <p>
                     Prompts + FPP context are sent <b>only</b> to the provider you selected, and only when you click Send/Test.
-                    Keys are stored in <code>plugindata/fpp-AImode/settings.json</code> with 0600 (not in config, so crash bundles never carry them) and never logged. Voice audio stays in the browser — only the transcript text is sent as a prompt (browser may use its own cloud for transcription per browser privacy). Choose Ollama for fully local AI.
+                    Keys are stored in <code>plugindata/fpp-AImode/settings.json</code> with 0600 (not in config, so crash bundles never carry them) and never logged. Choose Ollama (local, not installed by default) for fully local AI.
                 </p>
 
                 <h4>Links</h4>

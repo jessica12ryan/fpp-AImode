@@ -27,9 +27,9 @@ $showDevTab = $uiLevel >= 3;
 
             <h3>What This Plugin Does</h3>
             <p>
-                <b>AI Mode</b> lets you configure Falcon Player (FPP) with plain English — <b>typed or spoken</b>. Instead of clicking through
+                <b>AI Mode</b> lets you configure Falcon Player (FPP) with plain English — <b>typed prompts</b>. Instead of clicking through
                 settings, playlists, and scheduler screens, you describe what you want — e.g. <i>“make a Christmas playlist and run it nightly”</i> —
-                or say it via the <b>🎤 Voice Input</b> button, and the AI translates that into the correct FPP API calls.
+                and the AI translates that into the correct FPP API calls.
             </p>
             <p>It works with <b>8 providers</b>: OpenAI, Anthropic (Claude), Google Gemini, Mistral, Grok (xAI), OpenRouter, Ollama (local), and Azure OpenAI.</p>
 
@@ -41,7 +41,7 @@ $showDevTab = $uiLevel >= 3;
                 <li>Open <b>AI Mode → Config</b>, pick the <b>Provider</b>, paste the <b>API Key</b>, choose a <b>Model</b>.</li>
                 <li>Optionally set a custom <b>Base URL</b> (required for Azure, Ollama on another host, or proxies).</li>
                 <li>Click <b>Save Settings</b>, then <b>Test Connection</b> — expect <span class="text-success">✓ Connected</span>.</li>
-                <li>Go to <b>Assistant</b>, type a prompt — or click <b>🎤 Voice Input</b>, speak, and edit the transcript — then <b>Send</b>.</li>
+                <li>Go to <b>Assistant</b>, type a prompt and click <b>Send</b>.</li>
                 <li>Review any <b>tool calls</b> the AI proposes and click <b>Approve</b>. Check <b>Logs</b> for results.</li>
             </ol>
 
@@ -140,13 +140,6 @@ $showDevTab = $uiLevel >= 3;
                 <li>Model IDs are provider-specific. Use the picker or check the provider’s model list.</li>
                 <li>Azure: Model field must be your <b>deployment name</b>, not the base model name.</li>
                 <li>OpenRouter: use <code>provider/model</code> slugs like <code>openai/gpt-4o-mini</code>.</li>
-            </ul>
-            <h4>Voice not working?</h4>
-            <ul>
-                <li>Use <b>Chrome or Edge on desktop</b> (best Web Speech support). Allow microphone when prompted.</li>
-                <li>Check <b>HTTPS</b>: <code>chrome://settings/content/microphone</code> or site lock icon → permissions. HTTP on non-localhost is often blocked.</li>
-                <li>Try a different <b>language</b> selection (e.g. <code>en-US</code> vs Auto) and speak clearly near the mic.</li>
-                <li>Errors like <code>not-allowed</code> mean permission was denied — reset site permissions and reload.</li>
             </ul>
             <h4>Still stuck?</h4>
             <p>Check logs: <code>tail -40 /home/fpp/media/logs/plugin-fpp-AImode.log</code> and open an issue at <a href="https://github.com/jessica12ryan/fpp-AImode/issues" target="_blank">GitHub Issues</a>.</p>
