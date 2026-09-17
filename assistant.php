@@ -21,6 +21,16 @@ if (file_exists($aimSettingsFile)) {
     $j = json_decode(@file_get_contents($aimSettingsFile), true);
     if (is_array($j)) $aimSettings = array_merge($aimDefaults, $j);
 }
+$aimProviders = [
+    'openai' => ['label'=>'OpenAI','defaultBase'=>'https://api.openai.com/v1','models'=>['gpt-4o','gpt-4o-mini','gpt-4-turbo','o1','o1-mini','o3-mini','o3','gpt-5','gpt-5-mini','gpt-5-nano','gpt-5.6-sol','gpt-5.6-terra','gpt-5.6-luna','gpt-4.1','gpt-4.1-mini']],
+    'anthropic' => ['label'=>'Anthropic (Claude)','defaultBase'=>'https://api.anthropic.com','models'=>['claude-3-5-sonnet-20241022','claude-3-5-haiku-20241022','claude-3-opus-20240229','claude-3-haiku-20240307','claude-sonnet-4-6','claude-opus-4-8','claude-opus-5','claude-sonnet-5','claude-haiku-4-5']],
+    'google' => ['label'=>'Google Gemini','defaultBase'=>'https://generativelanguage.googleapis.com','models'=>['gemini-3.6-flash','gemini-3.8-flash','gemini-3.7-flash','gemini-3.5-flash','gemini-3.5-flash-lite','gemini-2.5-flash','gemini-2.5-pro','gemini-1.5-flash','gemini-1.5-pro']],
+    'mistral' => ['label'=>'Mistral','defaultBase'=>'https://api.mistral.ai/v1','models'=>['mistral-large-latest','mistral-small-latest','mistral-nemo','open-mistral-7b','mistral-large-2407','codestral-latest']],
+    'grok' => ['label'=>'Grok (xAI)','defaultBase'=>'https://api.x.ai/v1','models'=>['grok-3','grok-3-mini','grok-3-fast','grok-2','grok-beta','grok-2-mini']],
+    'openrouter' => ['label'=>'OpenRouter','defaultBase'=>'https://openrouter.ai/api/v1','models'=>['openai/gpt-4o','openai/gpt-4o-mini','openai/gpt-5','openai/gpt-5-mini','anthropic/claude-3.5-sonnet','anthropic/claude-opus-4','google/gemini-2.5-flash','google/gemini-3.6-flash','mistralai/mistral-large','x-ai/grok-3']],
+    'ollama' => ['label'=>'Ollama (Local)','defaultBase'=>'http://localhost:11434','models'=>['llama3.1','llama3.3','qwen2.5','qwen3','mistral','gemma2','gemma3','phi3','phi4','codellama','deepseek-r1']],
+    'azure' => ['label'=>'Azure OpenAI','defaultBase'=>'https://{your-endpoint}.openai.azure.com','models'=>['gpt-4o','gpt-4o-mini','gpt-35-turbo','gpt-5','gpt-5-mini','o3','o4-mini']],
+];
 $_fppUiLevel = (int)($GLOBALS['settings']['uiLevel'] ?? $settings['uiLevel'] ?? 0);
 $uiLevel = $_fppUiLevel;
 $showLogsTab = $uiLevel >= 1;
@@ -163,6 +173,7 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
 </div>
 
 <script>
+var aimProviders = <?php echo json_encode($aimProviders); ?>;
 var aimChat = {
     busy:false,
     currentConvId: null,
@@ -441,16 +452,16 @@ var aimConv = {
             success: function(r){
                 if(!r.success || !r.conversation) return;
                 var conv = r.conversation;
-                // Update per-conversation provider bar
+                // Update per-conversation provider bar (bottom bar with voice/auto-send)
                 aimConv._currentModel = conv.model || '';
                 var prov = conv.provider || aimConv._defaultProvider || 'openai';
-                // Ensure provider select is populated
                 aimConv.populateProviderSelect();
-                setTimeout(function(){
+                aimConv.ensureProviders(function(){
                     $('#aimConvProvider').val(prov);
                     aimConv.fetchModelsForProvider(prov);
-                    setTimeout(function(){ if(conv.model) $('#aimConvModel').val(conv.model); }, 400);
-                }, 100);
+                    // Keep model selection after fetch populates
+                    setTimeout(function(){ if(conv.model) $('#aimConvModel').val(conv.model); }, 600);
+                });
                 $('#aimMessages').empty();
                 if(!conv.messages || !conv.messages.length){
                     $('#aimMessages').html('<div class="aim-msg aim-msg-system">No messages yet. Try one of the examples above.</div>');
@@ -606,86 +617,116 @@ var aimConv = {
             url:'api/plugin/fpp-AImode/status',
             type:'GET',
             dataType:'json',
+            timeout: 8000,
             success: function(r){
                 var provs = {};
                 if(r.providers) provs = r.providers;
                 else if(r.provider_meta) provs[r.settings.provider] = r.provider_meta;
                 aimConv._providerCache = provs;
-                // Also cache default
                 aimConv._defaultProvider = r.defaultProvider || r.settings.defaultProvider || r.settings.provider;
                 if(cb) cb(provs);
+            },
+            error: function(){
+                // Fallback: at least set default from global if available
+                if(!aimConv._defaultProvider) aimConv._defaultProvider = 'openai';
+                if(cb) cb(aimConv._providerCache || {});
             }
         });
     },
     populateProviderSelect: function(){
-        aimConv.ensureProviders(function(provs){
-            var sel = $('#aimConvProvider').empty();
-            // Use global aimProviders if available (from config), else use fetched
-            var list = window.aimProviders || {};
-            // If list empty, use provs keys
+        var doPopulate = function(provs){
+            var sel = $('#aimConvProvider');
+            if(!sel.length) return;
+            var curVal = sel.val();
+            sel.empty();
+            var list = (typeof aimProviders !== 'undefined' && aimProviders) ? aimProviders : (window.aimProviders || {});
             var keys = Object.keys(list);
-            if(keys.length===0) keys = Object.keys(provs);
+            if(keys.length===0) keys = provs ? Object.keys(provs) : [];
             if(keys.length===0) keys = ['openai','anthropic','google','mistral','grok','openrouter','ollama','azure'];
             keys.forEach(function(k){
                 var label = (list[k] && list[k].label) ? list[k].label : k;
                 sel.append($('<option>',{value:k,text:label+' ('+k+')'}));
             });
+            if(curVal) sel.val(curVal);
+        };
+        // Try sync populate with local aimProviders if available
+        if(typeof aimProviders !== 'undefined' && aimProviders && Object.keys(aimProviders).length){
+            doPopulate(aimConv._providerCache || {});
+        }
+        aimConv.ensureProviders(function(provs){
+            doPopulate(provs);
         });
     },
     onProviderChange: function(){
         var prov = $('#aimConvProvider').val();
-        // Fetch models for this provider and populate model select
         aimConv.fetchModelsForProvider(prov);
     },
     onModelChange: function(){
-        // Model changed, mark dirty
         $('#aimConvProviderStatus').html('<span class="text-warning">• unsaved</span>');
     },
+    fetchModels: function(manual){
+        var prov = $('#aimConvProvider').val();
+        return aimConv.fetchModelsForProvider(prov, manual);
+    },
     fetchModelsForProvider: function(prov, manual){
-        var sel = $('#aimConvModel').empty().append($('<option>',{value:'',text:'Loading…'}));
-        // Use saved api_key/base_url for this provider if available
+        if(!prov) prov = $('#aimConvProvider').val();
+        if(!prov) return;
+        var sel = $('#aimConvModel');
+        // Immediate preset population so dropdown is never empty (shows instantly even if live fetch stalls)
+        var presetImmediate = (typeof aimProviders !== 'undefined' && aimProviders && aimProviders[prov] && aimProviders[prov].models) ? aimProviders[prov].models : ((window.aimProviders && window.aimProviders[prov] && window.aimProviders[prov].models) ? window.aimProviders[prov].models : []);
+        sel.empty();
+        if(presetImmediate && presetImmediate.length){
+            presetImmediate.forEach(function(m){ sel.append($('<option>',{value:m,text:m})); });
+            var curImm = aimConv._currentModel || '';
+            if(curImm && presetImmediate.indexOf(curImm)===-1) sel.append($('<option>',{value:curImm,text:curImm+' (custom)'}));
+            if(curImm) sel.val(curImm);
+            $('#aimConvProviderStatus').html('<span class="text-secondary">Preset '+presetImmediate.length+' — fetching live…</span>');
+        } else {
+            sel.append($('<option>',{value:'',text:'Loading…'}));
+        }
         var provs = aimConv._providerCache || {};
         var cfg = provs[prov] || {};
         var rawKey = cfg.api_key || '';
-        // Don't send redacted key (***), let server use saved key
         if(rawKey && rawKey.indexOf('***')===0) rawKey = '';
         var payload = {provider: prov, api_key: rawKey, base_url: cfg.base_url || ''};
-        // If no key and not ollama, just use preset list from window.aimProviders
-        if(prov!=='ollama' && !payload.api_key){
-            var preset = (window.aimProviders && window.aimProviders[prov] && window.aimProviders[prov].models) ? window.aimProviders[prov].models : [];
-            sel.empty();
-            preset.forEach(function(m){ sel.append($('<option>',{value:m,text:m})); });
-            // Keep current conversation model if set
-            var cur = aimConv._currentModel || '';
-            if(cur && preset.indexOf(cur)===-1) sel.append($('<option>',{value:cur,text:cur+' (custom)'}));
-            if(cur) sel.val(cur);
-            $('#aimConvProviderStatus').html('<span class="text-secondary">Using preset list (no key)</span>');
-            return;
-        }
         $.ajax({
             url:'api/plugin/fpp-AImode/models',
             type:'POST',
             contentType:'application/json',
             data: JSON.stringify(payload),
             dataType:'json',
+            timeout: 10000,
             success: function(r){
-                sel.empty();
                 if(r.success && r.models && r.models.length){
+                    sel.empty();
                     r.models.forEach(function(m){ sel.append($('<option>',{value:m,text:m})); });
                     var cur2 = aimConv._currentModel || '';
                     if(cur2 && r.models.indexOf(cur2)===-1) sel.append($('<option>',{value:cur2,text:cur2+' (custom)'}));
                     if(cur2) sel.val(cur2);
-                    $('#aimConvProviderStatus').html('<span class="text-success">✓ '+r.models.length+' models</span>');
+                    $('#aimConvProviderStatus').html('<span class="text-success">✓ '+r.models.length+' models (live)</span>');
+                    if(manual) $.jGrowl('Fetched '+r.models.length+' models for '+prov,{themeState:'success'});
                     setTimeout(function(){ $('#aimConvProviderStatus').text(''); }, 3000);
                 } else {
-                    sel.append($('<option>',{value:'',text:'No models'}));
-                    $('#aimConvProviderStatus').html('<span class="text-danger">'+(r.error||'Failed')+'</span>');
+                    // Keep preset already shown, just update status
+                    if(!presetImmediate || !presetImmediate.length){
+                        sel.empty().append($('<option>',{value:'',text:'No models'}));
+                        $('#aimConvProviderStatus').html('<span class="text-danger">'+(r.error||'Failed')+'</span>');
+                    } else {
+                        $('#aimConvProviderStatus').html('<span class="text-secondary">Preset '+presetImmediate.length+' ('+(r.error||'no live update')+')</span>');
+                    }
+                    if(manual) $.jGrowl(r.error||'Using preset list',{themeState:'warning'});
                 }
             },
-            error: function(xhr){
-                var m='Could not fetch'; try{var j=JSON.parse(xhr.responseText); if(j.error) m=j.error;}catch(e){}
-                sel.empty().append($('<option>',{value:'',text:'Error'}));
-                $('#aimConvProviderStatus').html('<span class="text-danger">'+m+'</span>');
+            error: function(xhr, status){
+                var m='Could not fetch live'; try{var j=JSON.parse(xhr.responseText); if(j.error) m=j.error;}catch(e){ if(status==='timeout') m='timeout — using preset'; }
+                // Preset already shown, keep it
+                if(presetImmediate && presetImmediate.length){
+                    $('#aimConvProviderStatus').html('<span class="text-warning">Preset '+presetImmediate.length+' ('+m+')</span>');
+                } else {
+                    sel.empty().append($('<option>',{value:'',text:'Error'}));
+                    $('#aimConvProviderStatus').html('<span class="text-danger">'+m+'</span>');
+                }
+                if(manual) $.jGrowl(m,{themeState:'error'});
             }
         });
     },
@@ -720,16 +761,125 @@ var aimConv = {
     }
 };
 
+var aimVoice = {
+    recognition: null,
+    listening: false,
+    supported: !!(window.SpeechRecognition || window.webkitSpeechRecognition),
+    interim: '',
+    finalText: '',
+    init: function(){
+        var sup = $('#aimVoiceSupport');
+        var btn = $('#aimMicBtn');
+        if(!aimVoice.supported){
+            sup.text('Voice not supported in this browser — try Chrome/Edge on desktop.');
+            btn.prop('disabled', true).attr('title','Web Speech API not available');
+            $('#aimVoiceStatus').text('');
+            return;
+        }
+        sup.text('Browser speech ready');
+        try{
+            var lang = localStorage.getItem('fppAImode_voiceLang');
+            if(lang) $('#aimVoiceLang').val(lang);
+            var auto = localStorage.getItem('fppAImode_voiceAutoSend');
+            if(auto === '1') $('#aimVoiceAutoSend').prop('checked', true);
+        }catch(e){}
+        $('#aimVoiceLang').on('change', function(){
+            try{ localStorage.setItem('fppAImode_voiceLang', $(this).val()); }catch(e){}
+        });
+        $('#aimVoiceAutoSend').on('change', function(){
+            try{ localStorage.setItem('fppAImode_voiceAutoSend', this.checked ? '1' : '0'); }catch(e){}
+        });
+        var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        aimVoice.recognition = new SR();
+        aimVoice.recognition.interimResults = true;
+        aimVoice.recognition.continuous = false;
+        aimVoice.recognition.maxAlternatives = 1;
+        aimVoice.recognition.onstart = function(){
+            aimVoice.listening = true;
+            btn.addClass('listening').text('⏹ Stop');
+            $('#aimVoiceStatus').html('<span class="text-danger">● Listening… speak now</span>');
+            $('#aimVoiceInterim').text('');
+            aimVoice.finalText = '';
+        };
+        aimVoice.recognition.onresult = function(event){
+            var interim = '';
+            var final = '';
+            for(var i=event.resultIndex; i<event.results.length; i++){
+                var res = event.results[i];
+                if(res.isFinal) final += res[0].transcript;
+                else interim += res[0].transcript;
+            }
+            if(interim) $('#aimVoiceInterim').text('… ' + interim);
+            if(final){
+                $('#aimVoiceInterim').text('');
+                var ta = $('#aimPrompt');
+                var cur = ta.val();
+                var toInsert = final.trim();
+                if(cur && !cur.endsWith(' ') && !cur.endsWith('\n')) toInsert = ' ' + toInsert;
+                ta.val(cur + toInsert);
+                ta.focus();
+                aimVoice.finalText += (aimVoice.finalText ? ' ' : '') + final.trim();
+            }
+        };
+        aimVoice.recognition.onerror = function(event){
+            var msg = event.error || 'unknown';
+            if(msg === 'not-allowed' || msg === 'permission-denied'){
+                $('#aimVoiceStatus').html('<span class="text-danger">Microphone permission denied — allow mic access in browser.</span>');
+                $.jGrowl('Microphone permission denied',{themeState:'error'});
+            } else if(msg === 'no-speech'){
+                $('#aimVoiceStatus').html('<span class="text-warning">No speech detected — try again.</span>');
+            } else if(msg === 'audio-capture'){
+                $('#aimVoiceStatus').html('<span class="text-danger">No microphone found.</span>');
+            } else {
+                $('#aimVoiceStatus').html('<span class="text-danger">Voice error: '+aimChat.esc(msg)+'</span>');
+            }
+            $('#aimVoiceInterim').text('');
+        };
+        aimVoice.recognition.onend = function(){
+            var wasListening = aimVoice.listening;
+            aimVoice.listening = false;
+            btn.removeClass('listening').text('🎤 Voice Input');
+            $('#aimVoiceInterim').text('');
+            if(wasListening){
+                if(aimVoice.finalText){
+                    $('#aimVoiceStatus').html('<span class="text-success">✓ Captured: “'+aimChat.esc(aimVoice.finalText.slice(0,80))+'”</span>');
+                    if($('#aimVoiceAutoSend').is(':checked')){
+                        setTimeout(function(){ aimChat.send(); }, 250);
+                    }
+                } else {
+                    $('#aimVoiceStatus').html('<span class="text-secondary">Stopped — no transcript. Try again.</span>');
+                }
+                setTimeout(function(){ $('#aimVoiceStatus').text(''); aimVoice.finalText=''; }, 4000);
+            }
+        };
+    },
+    toggle: function(){
+        if(!aimVoice.supported){
+            $.jGrowl('Voice input not supported in this browser',{themeState:'error'});
+            return;
+        }
+        if(aimVoice.listening){
+            try{ aimVoice.recognition.stop(); }catch(e){}
+            return;
+        }
+        var lang = $('#aimVoiceLang').val();
+        if(!lang) lang = navigator.language || 'en-US';
+        aimVoice.recognition.lang = lang;
+        aimVoice.finalText = '';
+        try{ aimVoice.recognition.start(); }catch(e){
+            $('#aimVoiceStatus').html('<span class="text-danger">Could not start voice: '+aimChat.esc(e.message||String(e))+'</span>');
+        }
+    }
+};
+
 $(document).ready(function(){
     aimConv.populateProviderSelect();
     aimConv.refreshList();
     setInterval(aimChat.refreshStatus, 15000);
-    // Background thinking poll — survives page refresh/navigation
     setInterval(function(){ aimConv.checkAndPoll(); }, 5000);
     document.addEventListener('visibilitychange', function(){ if(!document.hidden) aimConv.checkAndPoll(); });
-    // Also handle page show (bfcache)
     window.addEventListener('pageshow', function(){ aimConv.checkAndPoll(); });
-    aimVoice.init();
+    try{ aimVoice.init(); }catch(e){ console.warn('aimVoice init failed', e); }
 });
 </script>
 

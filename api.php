@@ -1555,6 +1555,13 @@ function aimChatEndpoint() {
     if ($prompt === '') return json(['success'=>false,'error'=>'Prompt is required']);
 
     $settings = aimLoadSettings();
+
+    // Resolve conversation first — need conv provider before picking effective provider (background-aware, survives refresh)
+    $conv = null;
+    if ($conversationId) $conv = aimGetConversation($conversationId);
+    if (!$conv) $conv = aimGetOrCreateActiveConversation($conversationId);
+    $conversationId = $conv['id'];
+
     // Resolve provider — per-conversation override takes precedence, then defaultProvider, then per-request override
     $convProvider = $conv['provider'] ?? null;
     $convModel = $conv['model'] ?? null;
@@ -1591,11 +1598,6 @@ function aimChatEndpoint() {
     }
     if (empty($effSettings['model'])) return json(['success'=>false,'error'=>'Model not configured for default provider ' . $defProvider]);
 
-    // Resolve conversation — multiple, background-aware (changing pages/refresh does not abort)
-    $conv = null;
-    if ($conversationId) $conv = aimGetConversation($conversationId);
-    if (!$conv) $conv = aimGetOrCreateActiveConversation($conversationId);
-    $conversationId = $conv['id'];
     // Update title if this is first user message and title is generic
     if (count($conv['messages'] ?? []) === 0 && (strpos($conv['title'] ?? '', 'Chat ') === 0 || ($conv['title'] ?? '') === 'Imported history')) {
         $conv['title'] = (function_exists('mb_substr') ? mb_substr($prompt, 0, 50) : substr($prompt, 0, 50));
