@@ -708,8 +708,8 @@ function aimGetTools() {
         ],
         [
             'name' => 'create_playlist',
-            'description' => 'Create or overwrite a playlist. entries is array of playlist items. Each entry MUST have a valid type and required fields: type "sequence" needs sequenceName (e.g. {"type":"sequence","sequenceName":"test.fseq","enabled":1}), type "media" needs mediaName, type "both" needs both sequenceName and mediaName, type "command" needs command (FPP command name like "Effect Stop", "Stop Effects", "Brightness", "Volume Set") and args array (e.g. {"type":"command","command":"Effect Stop","args":[],"enabled":1}), type "effect" needs effectName, type "branch" needs branch details, type "pause" needs duration. Use list_playlists/get_playlist first to see existing files. Example for effects stop: {"name":"mine","entries":[{"type":"command","command":"Effect Stop","args":[],"enabled":1}]}.',
-            'parameters' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string', 'description' => 'Playlist name'], 'entries' => ['type' => 'array', 'description' => 'Array of playlist entries, each with type and required fields per type', 'items' => ['type' => 'object']], 'shuffle' => ['type' => 'boolean', 'description' => 'Random shuffle']], 'required' => ['name','entries']],
+            'description' => 'Create or overwrite a playlist. entries is array of playlist items. Each entry MUST have a valid type and required fields: type "sequence" needs sequenceName (e.g. {"type":"sequence","sequenceName":"test.fseq","enabled":1}), type "media" needs mediaName, type "both" needs both sequenceName and mediaName, type "command" needs exact FPP command name in "command" plus args array (e.g. {"type":"command","command":"Effects Stop","args":[],"enabled":1} for all effects vs {"type":"command","command":"Effect Stop","args":["MyEffect"],"enabled":1} for a single effect - these are DIFFERENT commands, use the exact name the user requested), type "effect" needs effectName, type "branch" needs branch details, type "pause" needs duration. Do NOT normalize "Effects Stop" to "Effect Stop" or vice versa - preserve pluralization exactly. Use list_playlists/get_playlist first to see existing files. Examples: effects stop -> {"name":"mine","entries":[{"type":"command","command":"Effects Stop","args":[],"enabled":1}]} , effect stop -> {"name":"mine","entries":[{"type":"command","command":"Effect Stop","args":[],"enabled":1}]}.',
+            'parameters' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string', 'description' => 'Playlist name'], 'entries' => ['type' => 'array', 'description' => 'Array of playlist entries, each with type and required fields per type - preserve exact command names', 'items' => ['type' => 'object']], 'shuffle' => ['type' => 'boolean', 'description' => 'Random shuffle']], 'required' => ['name','entries']],
         ],
         [
             'name' => 'delete_playlist',
@@ -860,20 +860,19 @@ function aimExecuteTool($name, $args) {
                     if ((empty($e['sequenceName']) && empty($e['sequence'])) || (empty($e['mediaName']) && empty($e['media']))) return ['success'=>false,'error'=>"entries[$idx] type both requires both sequenceName and mediaName"];
                 }
                 // Prevent the exact bug reported: {type:command} with no command name creates empty entry
-                if ($t === 'command' && isset($e['command']) && trim($e['command']) === '' ) return ['success'=>false,'error'=>"entries[$idx] command name is empty - use 'Effect Stop' or 'Stop Effects'"];
+                if ($t === 'command' && isset($e['command']) && trim($e['command']) === '' ) return ['success'=>false,'error'=>"entries[$idx] command name is empty - use exact FPP command like 'Effects Stop' (all effects) or 'Effect Stop' (single) - they are different, preserve pluralization"];
             }
-            // Normalize entries for FPP compatibility
+            // Normalize entries for FPP compatibility - preserve exact command names, do NOT conflate Effects Stop vs Effect Stop
             $normalized = [];
             foreach ($args['entries'] as $e) {
                 $ne = $e;
                 if (!isset($ne['enabled'])) $ne['enabled'] = 1;
-                // Normalize command names for effects stop variations
-                if (strtolower(trim($ne['type'] ?? '')) === 'command' && isset($ne['command'])) {
-                    $cmd = trim($ne['command']);
-                    if (preg_match('/effect.*stop/i', $cmd) || preg_match('/stop.*effect/i', $cmd)) $ne['command'] = 'Effect Stop';
+                if (strtolower(trim($ne['type'] ?? '')) === 'command') {
+                    // Preserve exact command name as provided (effects vs effect are different commands)
                     if (!isset($ne['args']) || !is_array($ne['args'])) $ne['args'] = [];
+                    // Trim whitespace but keep original pluralization/casing for FPP to match exactly
+                    if (isset($ne['command'])) $ne['command'] = trim($ne['command']);
                 }
-                // Ensure type case is as FPP expects (lowercase is usually ok, but keep as provided)
                 $normalized[] = $ne;
             }
             // FPP expects mainPlaylist (and sometimes entries) - send both for compatibility, plus version/repeat
@@ -1238,7 +1237,7 @@ function aimBuildSystemPrompt($settings) {
         . "- For playlists/schedules you must READ first (list_/get_) to avoid duplicates, but for simple scalar sets with an explicit value (e.g. Set volume to 80%, Set brightness) you may call update_settings directly without a prior get.\n"
         . "- Explain each change briefly in your reply before calling tools.\n"
         . "- Use valid JSON for tool arguments. Times are HH:MM:SS, days like MTWThFSaSu or 127, booleans as true/false.\n"
-        . "- Playlist entries MUST have complete required fields per type: sequence needs sequenceName, media needs mediaName, both needs both, command needs command+args (e.g. Effects Stop: {\"type\":\"command\",\"command\":\"Effect Stop\",\"args\":[],\"enabled\":1}), effect needs effectName, pause needs duration. Never send {\"type\":\"command\"} without command name - it will be rejected. Use list_playlists/get_playlist to see existing files before creating.\n"
+        . "- Playlist entries MUST have complete required fields per type: sequence needs sequenceName, media needs mediaName, both needs both, command needs exact FPP command name in command+args, effect needs effectName, pause needs duration. Never send {\"type\":\"command\"} without command name. For commands, preserve exact names: \"Effects Stop\" (plural, stops all effects) and \"Effect Stop\" (singular, stops one effect) are DIFFERENT - use exactly what the user requested, do not normalize or conflate. Use list_playlists/get_playlist first.\n"
         . "- Never invent playlist/media names not shown in context; ask the user if unsure.\n"
         . "- Prefer minimal, reversible edits. Offer to restart FPPD only if needed.\n"
         . "- If the user request is ambiguous, ask a clarifying question instead of guessing.\n"
