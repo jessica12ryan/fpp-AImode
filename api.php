@@ -507,7 +507,7 @@ function aimGetConversation($id) {
 function aimCreateConversation($title = null, $provider = null, $model = null) {
     aimEnsureConversationsMigrated();
     $id = 'conv_' . substr(md5(uniqid('', true) . microtime()), 0, 12);
-    if (!$title || trim($title)==='') $title = 'Chat ' . date('Y-m-d H:i');
+    if (!$title || trim($title)==='') $title = 'Chat ' . date('Y-m-d, g:i:s A');
     $title = (function_exists('mb_substr') ? mb_substr(trim($title), 0, 80) : substr(trim($title), 0, 80));
     $now = date('Y-m-d H:i:s');
     $settings = aimLoadSettings();
@@ -1603,11 +1603,8 @@ function aimChatEndpoint() {
     }
     if (empty($effSettings['model'])) return json(['success'=>false,'error'=>'Model not configured for default provider ' . $defProvider]);
 
-    // Update title if this is first user message and title is generic
-    if (count($conv['messages'] ?? []) === 0 && (strpos($conv['title'] ?? '', 'Chat ') === 0 || ($conv['title'] ?? '') === 'Imported history')) {
-        $conv['title'] = (function_exists('mb_substr') ? mb_substr($prompt, 0, 50) : substr($prompt, 0, 50));
-        if ((function_exists('mb_strlen') ? mb_strlen($prompt) : strlen($prompt)) > 50) $conv['title'] .= '…';
-    }
+    // Keep timestamp title - do not rename from prompt (user requested Chat YYYY-MM-DD, h:mm:ss AM format)
+    // Title is already set at creation to Chat Y-m-d, g:i:s A; leave as is even on first message
     // Append user prompt to conversation and mark thinking
     $conv['messages'][] = ['role'=>'user','content'=>$prompt,'ts'=>date('Y-m-d H:i:s')];
     $conv['status'] = 'thinking';

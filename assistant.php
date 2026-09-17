@@ -42,25 +42,38 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
     fieldset { padding: 5px !important; }
     .aim-chat-input { flex-direction: column; }
     .aim-chat-input textarea { min-height: 80px; }
+    .aim-provider-bar { flex-direction: column; align-items: stretch !important; }
 }
-.aim-chat { display:flex; flex-direction:column; gap:12px; }
-.aim-messages { border:1px solid var(--bs-border-color,#dee2e6); border-radius:6px; padding:12px; min-height:320px; max-height:520px; overflow-y:auto; background: var(--bs-body-bg,#fff); }
-.aim-msg { margin-bottom:12px; padding:8px 10px; border-radius:6px; max-width:92%; word-wrap:break-word; }
-.aim-msg-user { background:var(--bs-primary); color:var(--bs-white); align-self:flex-end; margin-left:auto; }
-.aim-msg-assistant { background:var(--bs-tertiary-bg); color:var(--bs-body-color); border:1px solid var(--bs-border-color); }
-.aim-msg-system { background:var(--bs-warning-bg-subtle); color:var(--bs-warning-text-emphasis); border:1px solid var(--bs-warning-border-subtle); font-size:12px; }
-.aim-msg-meta { font-size:11px; opacity:0.7; margin-top:4px; }
-.aim-chat-input { display:flex; gap:8px; align-items:flex-end; }
-.aim-chat-input textarea { flex:1; min-height:56px; resize:vertical; }
-.aim-tool-card { border:1px solid var(--bs-border-color,#dee2e6); border-radius:6px; padding:8px 10px; margin-top:8px; background:var(--bs-body-bg,#fff); }
-.aim-tool-card pre { margin:4px 0 6px 0; white-space:pre-wrap; word-break:break-all; font-size:11px; background:var(--bs-tertiary-bg,#f8f9fa); padding:6px; border-radius:4px; }
-.aim-examples { display:flex; flex-wrap:wrap; gap:6px; }
-.aim-examples button { font-size:12px; padding:4px 8px; }
-.aim-provider-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; padding:8px; border:1px dashed var(--bs-border-color,#dee2e6); border-radius:6px; background: var(--bs-tertiary-bg,#f8f9fa); }
-.aim-thinking { display:none; align-items:center; gap:8px; font-size:12px; color:var(--bs-secondary-color); padding:6px 10px; border:1px dashed var(--bs-border-color); border-radius:6px; background:var(--bs-tertiary-bg); margin-top:6px; }
+.aim-chat { display:flex; flex-direction:column; gap:14px; }
+.aim-welcome { background: linear-gradient(135deg, var(--bs-primary-bg-subtle,#e7f1ff) 0%, var(--bs-tertiary-bg,#f8f9fa) 100%); border:1px solid var(--bs-border-color,#dee2e6); border-radius:10px; padding:14px 16px; display:flex; gap:12px; align-items:center; }
+.aim-welcome-icon { font-size:28px; line-height:1; }
+.aim-welcome h4 { margin:0 0 4px 0; font-size:16px; font-weight:700; }
+.aim-welcome p { margin:0; font-size:12px; color:var(--bs-secondary-color); line-height:1.4; }
+.aim-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; padding:10px 12px; background:var(--bs-tertiary-bg,#f8f9fa); border:1px solid var(--bs-border-color,#dee2e6); border-radius:8px; }
+.aim-header-badges .badge { font-size:11px; padding:5px 7px; }
+.aim-conv-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:10px 12px; border:1px solid var(--bs-border-color,#dee2e6); border-radius:8px; background:var(--bs-body-bg,#fff); box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+.aim-conv-bar label { font-size:12px; font-weight:600; color:var(--bs-secondary-color); white-space:nowrap; }
+.aim-examples { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:8px 12px; background:var(--bs-body-bg,#fff); border:1px solid var(--bs-border-color,#dee2e6); border-radius:8px; }
+.aim-examples .aim-chip { font-size:12px; padding:6px 12px; border-radius:20px; border:1px solid var(--bs-border-color,#dee2e6); background:var(--bs-tertiary-bg,#f8f9fa); cursor:pointer; transition:.15s; }
+.aim-examples .aim-chip:hover { background:var(--bs-primary); color:#fff; border-color:var(--bs-primary); transform: translateY(-1px); }
+.aim-messages { border:1px solid var(--bs-border-color,#dee2e6); border-radius:10px; padding:14px; min-height:340px; max-height:560px; overflow-y:auto; background: var(--bs-body-bg,#fff); box-shadow: inset 0 1px 3px rgba(0,0,0,.03); }
+.aim-msg { margin-bottom:14px; padding:10px 14px; border-radius:12px; max-width:88%; word-wrap:break-word; line-height:1.5; position:relative; }
+.aim-msg-user { background:var(--bs-primary); color:#fff; align-self:flex-end; margin-left:auto; border-bottom-right-radius:4px; box-shadow: 0 2px 4px rgba(0,0,0,.08); }
+.aim-msg-assistant { background:var(--bs-tertiary-bg); color:var(--bs-body-color); border:1px solid var(--bs-border-color); border-bottom-left-radius:4px; }
+.aim-msg-system { background:var(--bs-warning-bg-subtle); color:var(--bs-warning-text-emphasis); border:1px solid var(--bs-warning-border-subtle); font-size:12px; border-radius:8px; }
+.aim-msg-meta { font-size:11px; opacity:0.65; margin-top:6px; display:flex; gap:8px; align-items:center; }
+.aim-chat-input { display:flex; gap:10px; align-items:flex-end; background:var(--bs-tertiary-bg,#f8f9fa); padding:10px; border:1px solid var(--bs-border-color,#dee2e6); border-radius:10px; }
+.aim-chat-input textarea { flex:1; min-height:62px; resize:vertical; border-radius:8px; border:1px solid var(--bs-border-color,#dee2e6); padding:10px 12px; font-size:14px; }
+.aim-chat-input textarea:focus { border-color:var(--bs-primary); box-shadow: 0 0 0 3px rgba(var(--bs-primary-rgb),.15); outline:none; }
+.aim-tool-card { border:1px solid var(--bs-border-color,#dee2e6); border-radius:8px; padding:10px 12px; margin-top:10px; background:var(--bs-body-bg,#fff); box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+.aim-tool-card pre { margin:6px 0; white-space:pre-wrap; word-break:break-all; font-size:11px; background:var(--bs-tertiary-bg,#f8f9fa); padding:8px; border-radius:6px; border:1px solid var(--bs-border-color,#eee); }
+.aim-provider-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:4px; padding:10px 12px; border:1px dashed var(--bs-primary-border-subtle,#a0c4ff); border-radius:8px; background: var(--bs-primary-bg-subtle,#f0f7ff); }
+.aim-provider-bar label { font-size:12px; font-weight:600; color:var(--bs-primary-text-emphasis); }
+.aim-thinking { display:none; align-items:center; gap:10px; font-size:12px; color:var(--bs-secondary-color); padding:10px 14px; border:1px dashed var(--bs-border-color); border-radius:8px; background:var(--bs-tertiary-bg); margin-top:6px; }
 .aim-thinking.show { display:flex; }
-.aim-thinking .spinner { width:14px; height:14px; border:2px solid var(--bs-secondary-color); border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite; flex-shrink:0; }
+.aim-thinking .spinner { width:16px; height:16px; border:2.5px solid var(--bs-secondary-color); border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite; flex-shrink:0; }
 @keyframes spin { to { transform:rotate(360deg);} }
+.aim-help { font-size:11px; color:var(--bs-secondary-color); background:var(--bs-tertiary-bg,#f8f9fa); padding:8px 12px; border-radius:8px; border:1px solid var(--bs-border-color,#eee); }
 </style>
 
 <?php include __DIR__ . '/tabs.inc'; ?>
@@ -74,40 +87,49 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
     <?php endif; ?>
 
     <fieldset class="border p-3">
-        <legend>AI Assistant — Configure FPP with Natural Language</legend>
+        <legend>✨ AI Assistant — Talk to your FPP</legend>
         <div class="p-3 aim-chat">
-            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-                <div>
-                    <span class="text-secondary" style="font-size:12px;">Provider:</span> <b id="aim-cur-provider"><?php echo htmlspecialchars($aimSettings['provider']); ?></b>
-                    <span class="text-secondary" style="font-size:12px; margin-left:8px;">Model:</span> <b id="aim-cur-model"><?php echo htmlspecialchars($aimSettings['model']); ?></b>
-                    <span id="aim-mode-badges" style="margin-left:10px;">
+            <div class="aim-welcome">
+                <div class="aim-welcome-icon">🎄</div>
+                <div style="flex:1;">
+                    <h4>Configure your show with plain English</h4>
+                    <p>Ask to create playlists, schedules, set volume, check status, or troubleshoot outputs. The AI will propose precise FPP actions for you to approve.</p>
+                </div>
+                <a href="plugin.php?plugin=fpp-AImode&page=config.php" class="buttons" style="white-space:nowrap;">⚙️ Configure</a>
+            </div>
+
+            <div class="aim-header">
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <span class="badge bg-primary" style="font-weight:600;">🤖 <span id="aim-cur-provider"><?php echo htmlspecialchars($aimSettings['provider']); ?></span></span>
+                    <span class="text-secondary" style="font-size:12px;">using</span>
+                    <span class="badge bg-secondary" id="aim-cur-model" style="font-weight:500;"><?php echo htmlspecialchars($aimSettings['model']); ?></span>
+                    <span id="aim-mode-badges">
                         <?php if (!empty($aimSettings['dry_run'])) echo '<span class="badge bg-warning text-dark">DRY-RUN</span> '; ?>
-                        <?php if (!empty($aimSettings['auto_approve'])) echo '<span class="badge bg-info">AUTO-APPROVE</span>'; else echo '<span class="badge bg-secondary">Approve required</span>'; ?>
+                        <?php if (!empty($aimSettings['auto_approve'])) echo '<span class="badge bg-success">✓ Auto-approve</span>'; else echo '<span class="badge bg-secondary">Manual approve</span>'; ?>
                     </span>
                 </div>
-                <div>
-                    <input type="button" class="buttons" value="↻ Reload History" onclick="aimChat.loadHistory();">
-                    <input type="button" class="buttons" value="Clear Chat" onclick="aimChat.clearHistory();">
+                <div style="display:flex; gap:6px;">
+                    <button type="button" class="buttons btn-sm" onclick="aimChat.loadHistory();" title="Reload current conversation">↻ Reload</button>
+                    <button type="button" class="buttons btn-sm" onclick="aimChat.clearHistory();" title="Delete this conversation">🗑️ Clear</button>
                 </div>
             </div>
 
-            <div id="aimConvBar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; padding:8px; border:1px solid var(--bs-border-color); border-radius:6px; background:var(--bs-body-bg);">
-                <span class="text-secondary" style="font-size:12px; white-space:nowrap;">Conversation:</span>
-                <select id="aimConvSelect" class="form-select" style="flex:1 1 160px; max-width:260px; font-size:12px;" onchange="aimConv.switch(this.value)"></select>
-                <button type="button" class="buttons" onclick="aimConv.create()" title="New conversation">+ New</button>
-                <button type="button" class="buttons" onclick="aimConv.rename()" title="Rename current">Rename</button>
-                <button type="button" class="buttons" onclick="aimConv.delete()" title="Delete current">Delete</button>
-                <span id="aimConvStatus" class="text-secondary" style="font-size:11px; flex:1;"></span>
+            <div id="aimConvBar" class="aim-conv-bar">
+                <label for="aimConvSelect">💬 Conversation</label>
+                <select id="aimConvSelect" class="form-select" style="flex:1 1 180px; max-width:300px; font-size:13px; font-weight:500;" onchange="aimConv.switch(this.value)"></select>
+                <button type="button" class="buttons" onclick="aimConv.create()" title="Start a new chat" style="background:var(--bs-primary); color:#fff; border-color:var(--bs-primary);">＋ New Chat</button>
+                <button type="button" class="buttons" onclick="aimConv.rename()" title="Rename this conversation">✎ Rename</button>
+                <button type="button" class="buttons" onclick="aimConv.delete()" title="Delete this conversation">🗑️ Delete</button>
+                <span id="aimConvStatus" class="text-secondary" style="font-size:11px; flex:1; text-align:right;"></span>
             </div>
 
-
             <div class="aim-examples">
-                <span class="text-secondary" style="font-size:12px; align-self:center;">Try:</span>
-                <button class="buttons" onclick="aimChat.fillExample(this)">What playlists do I have?</button>
-                <button class="buttons" onclick="aimChat.fillExample(this)">Create a playlist called Test with random shuffle</button>
-                <button class="buttons" onclick="aimChat.fillExample(this)">Schedule my Christmas playlist nightly 6pm-11pm</button>
-                <button class="buttons" onclick="aimChat.fillExample(this)">Set volume to 75 and show system info</button>
-                <button class="buttons" onclick="aimChat.fillExample(this)">Help me set up channel outputs for E1.31</button>
+                <span class="text-secondary" style="font-size:12px; font-weight:600; white-space:nowrap;">⚡ Try:</span>
+                <button class="aim-chip" onclick="aimChat.fillExample(this)">📋 What playlists do I have?</button>
+                <button class="aim-chip" onclick="aimChat.fillExample(this)">🎵 Create playlist Test with shuffle</button>
+                <button class="aim-chip" onclick="aimChat.fillExample(this)">📅 Schedule Christmas 6pm–11pm</button>
+                <button class="aim-chip" onclick="aimChat.fillExample(this)">🔊 Set volume to 75 + system info</button>
+                <button class="aim-chip" onclick="aimChat.fillExample(this)">🔌 Help with E1.31 outputs</button>
             </div>
 
             <div id="aimMessages" class="aim-messages">
@@ -116,23 +138,23 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
             <div id="aimThinking" class="aim-thinking"><div class="spinner"></div><span id="aimThinkingText">Thinking…</span><span id="aimThinkingDots"></span></div>
 
             <div class="aim-chat-input">
-                <textarea id="aimPrompt" placeholder="Describe what you want to configure… e.g. 'Create a playlist named Halloween with Spooky.fseq and schedule it Oct 31 18:00-23:00'" rows="2" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); aimChat.send();}"></textarea>
-                <div style="display:flex; flex-direction:column; gap:6px;">
-                    <input type="button" class="buttons" id="aimSendBtn" value="Send ▶" onclick="aimChat.send();" style="padding:10px 18px; font-weight:600;">
-                    <span id="aimChatStatus" class="text-secondary" style="font-size:11px; text-align:center;"></span>
+                <textarea id="aimPrompt" placeholder="💬 Describe what you want…  Try 'Create a playlist named Halloween with Spooky.fseq and schedule it Oct 31 6pm–11pm'" rows="2" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); aimChat.send();}"></textarea>
+                <div style="display:flex; flex-direction:column; gap:6px; min-width:96px;">
+                    <button type="button" class="buttons" id="aimSendBtn" onclick="aimChat.send();" style="padding:12px 20px; font-weight:700; background:var(--bs-primary); color:#fff; border-color:var(--bs-primary); border-radius:8px; font-size:14px;">Send ▶</button>
+                    <span id="aimChatStatus" class="text-secondary" style="font-size:11px; text-align:center; min-height:14px;"></span>
                 </div>
             </div>
-            <div class="aim-provider-bar" id="aimProviderBar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                <span class="text-secondary" style="font-size:12px; white-space:nowrap;">Provider for this conversation:</span>
-                <select id="aimConvProvider" class="form-select" style="flex:0 1 160px; max-width:180px; font-size:12px;" onchange="aimConv.onProviderChange()"></select>
-                <select id="aimConvModel" class="form-select" style="flex:1 1 160px; max-width:260px; font-size:12px;" onchange="aimConv.onModelChange()"></select>
-                <button type="button" class="buttons" onclick="aimConv.saveProvider()" title="Save provider/model for this conversation">Save</button>
-                <button type="button" class="buttons" onclick="aimConv.fetchModels(true)" title="Refresh models">↻</button>
-                <span id="aimConvProviderStatus" class="text-secondary" style="font-size:11px;"></span>
+            <div class="aim-provider-bar" id="aimProviderBar">
+                <label for="aimConvProvider">🤖 Model for this chat</label>
+                <select id="aimConvProvider" class="form-select" style="flex:0 1 160px; max-width:170px; font-size:12px; font-weight:500;" onchange="aimConv.onProviderChange()"></select>
+                <select id="aimConvModel" class="form-select" style="flex:1 1 180px; max-width:300px; font-size:12px;" onchange="aimConv.onModelChange()"></select>
+                <button type="button" class="buttons" onclick="aimConv.saveProvider()" title="Save this model for this conversation only" style="font-weight:600;">💾 Save</button>
+                <button type="button" class="buttons" onclick="aimConv.fetchModels(true)" title="Refresh model list from provider">↻</button>
+                <span id="aimConvProviderStatus" class="text-secondary" style="font-size:11px; flex:1;"></span>
             </div>
-            <div class="text-secondary" style="font-size:11px;">
-                <b>Enter</b> to send, <b>Shift+Enter</b> for newline. Tool calls are shown below each reply — click <b>Approve</b> to execute. In dry-run nothing is executed.
-                &nbsp;<a href="plugin.php?plugin=fpp-AImode&page=help.php">Help</a>
+            <div class="aim-help">
+                💡 <b>Tip:</b> <b>Enter</b> to send, <b>Shift+Enter</b> for newline. Each reply may propose FPP actions — click <b>✓ Approve</b> to run them. Dry-run is off by default; toggle in <a href="plugin.php?plugin=fpp-AImode&page=config.php">Config</a>.
+                · <a href="plugin.php?plugin=fpp-AImode&page=help.php">📖 Help & examples</a>
             </div>
         </div>
     </fieldset>
@@ -479,7 +501,11 @@ var aimConv = {
     },
     switch: function(id){ aimConv.load(id); },
     create: function(){
-        var title = prompt('New conversation title:', 'Chat ' + new Date().toLocaleString());
+        var _d = new Date();
+        var _pad = function(n){ return n<10?'0'+n:n; };
+        var _h = _d.getHours(); var _ampm = _h>=12?'PM':'AM'; _h = _h%12; if(_h===0) _h=12;
+        var _title = 'Chat ' + _d.getFullYear() + '-' + _pad(_d.getMonth()+1) + '-' + _pad(_d.getDate()) + ', ' + _h + ':' + _pad(_d.getMinutes()) + ':' + _pad(_d.getSeconds()) + ' ' + _ampm;
+        var title = prompt('New conversation title:', _title);
         if(title===null) return;
         $.ajax({
             url:'api/plugin/fpp-AImode/conversations',

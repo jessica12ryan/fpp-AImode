@@ -80,43 +80,72 @@ $showDevTab = $uiLevel >= 3;
 ?>
 <style>
 @media only screen and (max-width: 480px) {
-    fieldset { padding: 5px !important; }
+    fieldset { padding: 8px !important; }
     table { width: 100%; table-layout: fixed; word-wrap: break-word; }
     td { display: block; width: 100% !important; box-sizing: border-box; }
     input[type="text"], input[type="password"], select, textarea { width: 100% !important; box-sizing: border-box; }
-    input.buttons { width: 100%; margin-bottom: 4px; box-sizing: border-box; }
+    input.buttons { width: 100%; margin-bottom: 6px; box-sizing: border-box; }
 }
-.provider-card { border:1px solid var(--bs-border-color); border-radius:6px; padding:12px; margin-bottom:10px; background:var(--bs-body-bg); }
+.aim-welcome { background: linear-gradient(135deg, var(--bs-primary-bg-subtle,#e7f1ff) 0%, var(--bs-tertiary-bg,#f8f9fa) 100%); border:1px solid var(--bs-border-color,#dee2e6); border-radius:10px; padding:16px 18px; display:flex; gap:14px; align-items:center; margin-bottom:16px; }
+.aim-welcome-icon { font-size:28px; }
+.aim-welcome h4 { margin:0 0 4px 0; font-size:16px; font-weight:700; }
+.aim-welcome p { margin:0; font-size:12.5px; color:var(--bs-secondary-color); line-height:1.5; }
+.aim-steps { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0; }
+.aim-step { flex:1 1 160px; background:var(--bs-body-bg,#fff); border:1px solid var(--bs-border-color,#dee2e6); border-radius:8px; padding:10px 12px; text-align:center; }
+.aim-step b { display:block; font-size:13px; color:var(--bs-primary); }
+.aim-step span { font-size:11px; color:var(--bs-secondary-color); }
+.provider-card { border:1px solid var(--bs-border-color); border-radius:8px; padding:12px 14px; margin-bottom:10px; background:var(--bs-body-bg); transition:.15s; }
+.provider-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.06); transform: translateY(-1px); }
 .provider-card.configured { border-left:4px solid var(--bs-success); }
-.provider-card.default { background:var(--bs-tertiary-bg); }
+.provider-card.default { background:var(--bs-primary-bg-subtle,#f0f7ff); border-color:var(--bs-primary-border-subtle); }
+.aim-overview-cards { display:grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap:10px; margin-top:12px; }
+.aim-overview-card { background:var(--bs-body-bg,#fff); border:1px solid var(--bs-border-color,#dee2e6); border-radius:8px; padding:10px 12px; display:flex; flex-direction:column; gap:6px; }
+.aim-overview-card.is-default { border-color:var(--bs-primary); background:var(--bs-primary-bg-subtle,#f0f7ff); }
+.aim-overview-card .aim-card-top { display:flex; justify-content:space-between; align-items:center; }
+.aim-overview-card .aim-card-title { font-weight:700; font-size:13px; }
+.aim-overview-card .aim-card-model { font-size:11px; color:var(--bs-secondary-color); font-family:monospace; }
+fieldset { border-radius:10px !important; }
+fieldset legend { font-weight:700; font-size:14px; padding:0 8px; }
 </style>
 
 <?php include __DIR__ . '/tabs.inc'; ?>
 
-<div style="margin:0 auto;">
+<div style="margin:0 auto; max-width:960px;">
+    <div class="aim-welcome">
+        <div class="aim-welcome-icon">⚙️</div>
+        <div style="flex:1;">
+            <h4>Connect your AI provider — 30 seconds</h4>
+            <p>Pick a <b>Default Provider</b> for new chats, paste its API key, choose a model, and hit <b>Test</b>. You can add multiple providers and switch per-conversation later in the Assistant.</p>
+        </div>
+        <a href="plugin.php?plugin=fpp-AImode&page=assistant.php" class="buttons" style="white-space:nowrap;">💬 Open Assistant</a>
+    </div>
+    <div class="aim-steps">
+        <div class="aim-step"><b>① Choose</b><span>Default provider</span></div>
+        <div class="aim-step"><b>② Paste</b><span>API key / token</span></div>
+        <div class="aim-step"><b>③ Pick</b><span>Model</span></div>
+        <div class="aim-step"><b>④ Test & Save</b><span>Verify connection</span></div>
+    </div>
+
     <fieldset class="border p-3">
-        <legend>AI Mode — Providers &amp; Default</legend>
+        <legend>⭐ Default provider for new chats</legend>
         <div class="p-3">
-            <div class="alert alert-info" style="font-size:13px;">
-                Configure multiple providers below. The <b>Default Provider</b> is automatically used for new conversations. You can still type a provider name in a prompt or change default anytime.
+            <div class="alert alert-info" style="font-size:12.5px; border-radius:8px;">
+                💡 New conversations automatically use the <b>Default Provider</b>. You can override it per-chat in the Assistant's bottom bar. No need to re-enter keys — just switch.
             </div>
-            <table class="table table-borderless mb-0">
-                <tr>
-                    <td style="padding:4px; width:180px;"><b>Default Provider:</b></td>
-                    <td style="padding:4px;">
-                        <select id="aim_default_provider" class="form-select" style="max-width:320px;">
-                            <?php foreach ($aimProviders as $k=>$v): ?>
-                            <option value="<?php echo $k; ?>" <?php echo ($aimSettings['defaultProvider'] ?? $aimSettings['provider'])===$k?'selected':''; ?>><?php echo htmlspecialchars($v['label']); ?> (<?php echo $k; ?>)</option>
-                            <?php endforeach; ?>
-                        </select>
-                        <span class="text-secondary" style="font-size:12px; margin-left:8px;">Used for new conversations</span>
-                        <span id="aim_default_status" class="text-success" style="font-size:12px; margin-left:8px;"></span>
-                    </td>
-                </tr>
-            </table>
+            <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; background:var(--bs-tertiary-bg,#f8f9fa); padding:12px; border-radius:8px; border:1px solid var(--bs-border-color,#dee2e6);">
+                <label for="aim_default_provider" style="font-weight:600; font-size:13px; white-space:nowrap;">Default Provider:</label>
+                <select id="aim_default_provider" class="form-select" style="flex:1 1 220px; max-width:320px; font-weight:500;">
+                    <?php foreach ($aimProviders as $k=>$v): ?>
+                    <option value="<?php echo $k; ?>" <?php echo ($aimSettings['defaultProvider'] ?? $aimSettings['provider'])===$k?'selected':''; ?>><?php echo htmlspecialchars($v['label']); ?> (<?php echo $k; ?>)</option>
+                    <?php endforeach; ?>
+                </select>
+                <span class="text-secondary" style="font-size:12px;">Used for every new chat</span>
+                <span id="aim_default_status" class="text-success" style="font-size:12px; font-weight:600;"></span>
+            </div>
+            <div class="aim-overview-cards" id="aim_providers_cards" style="margin-top:14px;"></div>
             <div class="table-responsive" style="margin-top:12px;">
                 <table class="table table-sm" style="font-size:12px;">
-                    <thead><tr><th>Provider</th><th>Configured</th><th>Model</th><th>Default?</th></tr></thead>
+                    <thead><tr><th>Provider</th><th>Status</th><th>Model</th><th>Default</th></tr></thead>
                     <tbody id="aim_providers_overview"></tbody>
                 </table>
             </div>
@@ -126,64 +155,68 @@ $showDevTab = $uiLevel >= 3;
     <br/>
 
     <fieldset class="border p-3">
-        <legend>Configure Provider</legend>
+        <legend>🔑 Configure a provider — add your API key</legend>
         <div class="p-3">
+            <div class="alert alert-light" style="font-size:12px; border:1px dashed var(--bs-border-color); border-radius:8px;">
+                💡 Choose a provider, paste its key, pick a model, then <b>Test</b> and <b>Save</b>. Keys are stored locally in <code>plugindata/fpp-AImode/settings.json</code> (0600, never logged).
+            </div>
             <table class="table table-borderless mb-0">
                 <tr>
-                    <td style="padding:4px; width:180px;"><b>Provider to edit:</b></td>
-                    <td style="padding:4px;">
-                        <select id="aim_provider" class="form-select" style="max-width:320px;">
+                    <td style="padding:6px; width:180px;"><b>① Provider:</b></td>
+                    <td style="padding:6px;">
+                        <select id="aim_provider" class="form-select" style="max-width:320px; font-weight:500;">
                             <?php foreach ($aimProviders as $k=>$v): ?>
                             <option value="<?php echo $k; ?>"><?php echo htmlspecialchars($v['label']); ?> (<?php echo $k; ?>)</option>
                             <?php endforeach; ?>
                         </select>
-                        <span class="text-secondary" style="font-size:12px; margin-left:8px;">Select a provider to configure its API key and model</span>
+                        <div class="text-secondary" style="font-size:11px; margin-top:4px;">Select the provider you want to configure — you can add several.</div>
                     </td>
                 </tr>
                 <tr>
-                    <td style="padding:4px;"><b>API Key / Token:</b></td>
-                    <td style="padding:4px;">
+                    <td style="padding:6px;"><b>② API Key:</b> <span class="text-danger">*</span></td>
+                    <td style="padding:6px;">
                         <div class="d-flex flex-wrap gap-2 align-items-center">
-                            <input type="password" id="aim_api_key" class="form-control" style="flex:1 1 220px; min-width:0;" placeholder="Paste API key">
-                            <label class="form-check-label"><input type="checkbox" class="form-check-input" id="aim_show_key" onchange="$('#aim_api_key').attr('type', this.checked ? 'text':'password')"> Show</label>
+                            <input type="password" id="aim_api_key" class="form-control" style="flex:1 1 260px; min-width:0; font-family:monospace; font-size:13px;" placeholder="Paste API key here">
+                            <label class="form-check-label" style="font-size:13px;"><input type="checkbox" class="form-check-input" id="aim_show_key" onchange="$('#aim_api_key').attr('type', this.checked ? 'text':'password')"> Show</label>
                             <span id="aim_key_status" class="text-secondary" style="font-size:12px;"></span>
                         </div>
-                        <div class="text-secondary" style="font-size:12px; margin-top:4px;">
-                            Stored in <code>plugindata/fpp-AImode/settings.json</code> per-provider with 0600. Never logged. Leave blank for Ollama.
-                            <span id="aim_key_hint" class="text-warning" style="margin-left:8px;"></span>
+                        <div class="text-secondary" style="font-size:11px; margin-top:6px;">
+                            Stored locally. Leave blank only for <b>Ollama</b> (local). Expected format: <span id="aim_key_hint" class="text-warning" style="font-weight:600;"></span>
                         </div>
                     </td>
                 </tr>
                 <tr>
-                    <td style="padding:4px;"><b>Model:</b></td>
-                    <td style="padding:4px;">
+                    <td style="padding:6px;"><b>③ Model:</b></td>
+                    <td style="padding:6px;">
                         <div class="d-flex flex-wrap gap-2 align-items-center">
-                            <select id="aim_model_select" class="form-select" style="flex:1 1 160px; min-width:0;"></select>
-                            <input type="text" id="aim_model" class="form-control" style="flex:1 1 140px; min-width:0;" placeholder="custom model">
-                            <button type="button" class="buttons" id="aim_refresh_models" onclick="aimConfig.fetchModels(true)" title="Fetch available models from provider">↻ Refresh</button>
+                            <select id="aim_model_select" class="form-select" style="flex:1 1 180px; min-width:0; font-weight:500;"></select>
+                            <input type="text" id="aim_model" class="form-control" style="flex:1 1 160px; min-width:0; font-family:monospace; font-size:12px;" placeholder="or type custom model ID">
+                            <button type="button" class="buttons" id="aim_refresh_models" onclick="aimConfig.fetchModels(true)" title="Fetch live model list from provider (needs API key)" style="white-space:nowrap;">↻ Fetch models</button>
                             <span id="aim_models_status" class="text-secondary" style="font-size:12px;"></span>
                         </div>
-                        <div class="text-secondary" style="font-size:12px; margin-top:4px;">Pick a fetched model or type a custom deployment/model ID.</div>
+                        <div class="text-secondary" style="font-size:11px; margin-top:6px;">Choose from live list or type a custom deployment/model ID (e.g. Azure deployment name).</div>
                     </td>
                 </tr>
                 <tr>
-                    <td style="padding:4px;"><b>Base URL (optional):</b></td>
-                    <td style="padding:4px;">
-                        <input type="text" id="aim_base_url" class="form-control" placeholder="Leave empty for default">
-                        <div class="text-secondary" style="font-size:12px; margin-top:4px;">
-                            Default: <code id="aim_default_base"></code> | Use for Azure endpoint, Ollama host (<code>http://&lt;ollama-ip&gt;:11434</code>), or proxy.
+                    <td style="padding:6px;"><b>Base URL:</b> <span class="text-secondary" style="font-weight:400;">(optional)</span></td>
+                    <td style="padding:6px;">
+                        <input type="text" id="aim_base_url" class="form-control" style="font-family:monospace; font-size:12px;" placeholder="Leave empty for default — e.g. https://your-endpoint.openai.azure.com or http://192.168.1.50:11434">
+                        <div class="text-secondary" style="font-size:11px; margin-top:6px;">
+                            Default: <code id="aim_default_base"></code> · For <b>Azure</b> paste your endpoint, for <b>Ollama</b> your LAN host, or a proxy.
                         </div>
                     </td>
                 </tr>
                 <tr>
                     <td></td>
-                    <td style="padding:4px;">
-                        <input type="button" class="buttons" value="Save This Provider" onclick="aimConfig.saveProvider();">
-                        <input type="button" class="buttons" value="Test This Provider" onclick="aimConfig.testProvider();">
-                        <span id="aim_save_result" style="margin-left:8px;"></span>
+                    <td style="padding:10px 4px;">
+                        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                            <button type="button" class="buttons" onclick="aimConfig.saveProvider();" style="background:var(--bs-primary); color:#fff; border-color:var(--bs-primary); font-weight:700; padding:8px 18px; border-radius:8px;">💾 Save This Provider</button>
+                            <button type="button" class="buttons" onclick="aimConfig.testProvider();" style="font-weight:600; padding:8px 14px; border-radius:8px;">🧪 Test Connection</button>
+                            <span id="aim_save_result" style="font-weight:600; font-size:13px;"></span>
+                        </div>
+                        <div id="aim_test_result" style="margin-top:10px; padding:8px; border-radius:8px; min-height:20px;"></div>
                     </td>
                 </tr>
-                <tr><td></td><td><div id="aim_test_result" style="margin-top:4px;"></div></td></tr>
             </table>
         </div>
     </fieldset>
@@ -191,57 +224,47 @@ $showDevTab = $uiLevel >= 3;
     <br/>
 
     <fieldset class="border p-3">
-        <legend>Global Settings</legend>
+        <legend>🎛️ Global behavior</legend>
         <div class="p-3">
-            <div class="table-responsive">
-            <table class="table table-borderless mb-0">
-                <tr>
-                    <td style="padding:4px; width:180px;"><b>Temperature:</b></td>
-                    <td style="padding:4px;">
-                        <div class="d-flex align-items-center gap-2 flex-wrap">
-                            <input type="range" id="aim_temp" class="form-range" min="0" max="2" step="0.1" value="<?php echo htmlspecialchars($aimSettings['temperature']); ?>" style="max-width:14rem; flex:1 1 8rem;">
-                            <span id="aim_temp_val" class="fw-semibold"><?php echo htmlspecialchars($aimSettings['temperature']); ?></span>
-                            <span class="text-secondary small">0 = precise, 2 = creative</span>
+            <div class="alert alert-light" style="font-size:12px; border:1px dashed var(--bs-border-color); border-radius:8px; margin-bottom:14px;">
+                Fine-tune how the AI responds and what it can do. Changes apply to all conversations.
+            </div>
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:14px;">
+                <div style="background:var(--bs-tertiary-bg,#f8f9fa); border:1px solid var(--bs-border-color,#dee2e6); border-radius:8px; padding:14px;">
+                    <h6 style="font-size:13px; font-weight:700; margin:0 0 10px 0;">🧠 Creativity</h6>
+                    <div style="margin-bottom:12px;">
+                        <label style="font-size:12px; font-weight:600;">Temperature: <span id="aim_temp_val" class="badge bg-secondary"><?php echo htmlspecialchars($aimSettings['temperature']); ?></span></label>
+                        <input type="range" id="aim_temp" class="form-range" min="0" max="2" step="0.1" value="<?php echo htmlspecialchars($aimSettings['temperature']); ?>" style="margin-top:6px;">
+                        <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--bs-secondary-color);"><span>0 precise</span><span>1 balanced</span><span>2 creative</span></div>
+                    </div>
+                    <div>
+                        <label style="font-size:12px; font-weight:600;">Max tokens per reply</label>
+                        <div style="display:flex; gap:8px; align-items:center; margin-top:4px;">
+                            <input type="number" id="aim_max_tokens" class="form-control" min="64" max="16384" step="64" value="<?php echo (int)$aimSettings['max_tokens']; ?>" style="max-width:110px;">
+                            <span class="text-secondary" style="font-size:11px;">64–16384 · Default 2048</span>
                         </div>
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding:4px;"><b>Max Tokens:</b></td>
-                    <td style="padding:4px;">
-                        <input type="number" id="aim_max_tokens" class="form-control d-inline-block" min="64" max="16384" step="64" value="<?php echo (int)$aimSettings['max_tokens']; ?>" style="max-width:7rem; width:auto; display:inline-block;">
-                        <span class="text-secondary" style="font-size:12px; margin-left:8px;">Per reply (64–16384). Default 2048.</span>
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding:4px;"><b>System Prompt:</b></td>
-                    <td style="padding:4px;">
-                        <textarea id="aim_system_prompt" rows="5" class="form-control" style="width:100%; max-width:100%; font-family:monospace; font-size:12px;" placeholder="Leave empty for default FPP assistant prompt"><?php echo htmlspecialchars($aimSettings['system_prompt']); ?></textarea>
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding:4px;"><b>Include FPP Context:</b></td>
-                    <td style="padding:4px;"><label><input type="checkbox" id="aim_ctx" <?php echo !empty($aimSettings['include_fpp_context'])?'checked':''; ?>> Send live FPP status/playlists/settings with each prompt</label></td>
-                </tr>
-                <tr>
-                    <td style="padding:4px;"><b>History:</b></td>
-                    <td style="padding:4px;"><label><input type="checkbox" id="aim_hist" <?php echo !empty($aimSettings['history_enabled'])?'checked':''; ?>> Keep conversation history (last 40 turns)</label></td>
-                </tr>
-                <tr>
-                    <td style="padding:4px;"><b>Execution:</b></td>
-                    <td style="padding:4px;">
-                        <label><input type="checkbox" id="aim_dryrun" <?php echo !empty($aimSettings['dry_run'])?'checked':''; ?>> Dry-run (propose but never execute)</label>
-                        <label style="margin-left:16px;"><input type="checkbox" id="aim_auto" <?php echo !empty($aimSettings['auto_approve'])?'checked':''; ?>> Auto-approve tool calls</label>
-                        <div class="text-secondary" style="font-size:12px; margin-top:4px;">Auto-approve on by default — uncheck to require manual Approve.</div>
-                    </td>
-                </tr>
-                <tr>
-                    <td></td>
-                    <td style="padding:4px;">
-                        <input type="button" class="buttons" value="Save Global Settings" onclick="aimConfig.saveGlobal();">
-                        <span id="aim_global_result" style="margin-left:8px;"></span>
-                    </td>
-                </tr>
-            </table>
+                    </div>
+                </div>
+                <div style="background:var(--bs-tertiary-bg,#f8f9fa); border:1px solid var(--bs-border-color,#dee2e6); border-radius:8px; padding:14px;">
+                    <h6 style="font-size:13px; font-weight:700; margin:0 0 10px 0;">⚡ Execution</h6>
+                    <label style="display:flex; gap:8px; align-items:center; font-size:13px; margin-bottom:8px; cursor:pointer;"><input type="checkbox" id="aim_dryrun" class="form-check-input" <?php echo !empty($aimSettings['dry_run'])?'checked':''; ?>> <span><b>Dry-run</b> — propose only, never execute</span></label>
+                    <label style="display:flex; gap:8px; align-items:center; font-size:13px; margin-bottom:8px; cursor:pointer;"><input type="checkbox" id="aim_auto" class="form-check-input" <?php echo !empty($aimSettings['auto_approve'])?'checked':''; ?>> <span><b>Auto-approve</b> — run tools without manual approval</span></label>
+                    <div class="text-secondary" style="font-size:11px; margin-top:8px; padding:6px 8px; background:#fff; border-radius:6px; border:1px solid var(--bs-border-color,#eee);">💡 Auto-approve is on by default for a smooth experience. Uncheck for a careful review step.</div>
+                </div>
+                <div style="background:var(--bs-tertiary-bg,#f8f9fa); border:1px solid var(--bs-border-color,#dee2e6); border-radius:8px; padding:14px;">
+                    <h6 style="font-size:13px; font-weight:700; margin:0 0 10px 0;">📦 Context & Memory</h6>
+                    <label style="display:flex; gap:8px; align-items:center; font-size:13px; margin-bottom:8px; cursor:pointer;"><input type="checkbox" id="aim_ctx" class="form-check-input" <?php echo !empty($aimSettings['include_fpp_context'])?'checked':''; ?>> <span><b>Include FPP context</b> — send live status/playlists with each prompt</span></label>
+                    <label style="display:flex; gap:8px; align-items:center; font-size:13px; cursor:pointer;"><input type="checkbox" id="aim_hist" class="form-check-input" <?php echo !empty($aimSettings['history_enabled'])?'checked':''; ?>> <span><b>Keep history</b> — remember last 40 turns</span></label>
+                </div>
+            </div>
+            <div style="margin-top:14px;">
+                <label style="font-size:12px; font-weight:600;">System prompt <span class="text-secondary" style="font-weight:400;">(optional, advanced)</span></label>
+                <textarea id="aim_system_prompt" rows="3" class="form-control" style="width:100%; font-family:monospace; font-size:12px; margin-top:4px;" placeholder="Leave empty for the default FPP assistant instructions…"><?php echo htmlspecialchars($aimSettings['system_prompt']); ?></textarea>
+                <div class="text-secondary" style="font-size:11px; margin-top:4px;">Only change if you want to override the default FPP expert behavior.</div>
+            </div>
+            <div style="margin-top:14px; display:flex; gap:8px; align-items:center;">
+                <button type="button" class="buttons" onclick="aimConfig.saveGlobal();" style="background:var(--bs-primary); color:#fff; border-color:var(--bs-primary); font-weight:600; padding:8px 18px;">💾 Save Global Settings</button>
+                <span id="aim_global_result" style="font-size:13px; font-weight:600;"></span>
             </div>
         </div>
     </fieldset>
@@ -249,11 +272,11 @@ $showDevTab = $uiLevel >= 3;
     <br/>
 
     <fieldset class="border p-3">
-        <legend>Quick Links</legend>
-        <div class="p-3">
-            <a href="plugin.php?plugin=fpp-AImode&page=assistant.php" class="buttons">✎ Open Assistant</a>
-            <a href="plugin.php?plugin=fpp-AImode&page=status.php" class="buttons">View Status</a>
-            <a href="plugin.php?plugin=fpp-AImode&page=help.php" class="buttons">Help</a>
+        <legend>🚀 Quick start</legend>
+        <div class="p-3" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px;">
+            <a href="plugin.php?plugin=fpp-AImode&page=assistant.php" class="buttons" style="text-align:center; padding:14px; border-radius:8px; text-decoration:none; display:flex; flex-direction:column; gap:4px; align-items:center;"><span style="font-size:20px;">💬</span><b>Open Assistant</b><span style="font-size:11px; color:var(--bs-secondary-color);">Start chatting with your FPP</span></a>
+            <a href="plugin.php?plugin=fpp-AImode&page=status.php" class="buttons" style="text-align:center; padding:14px; border-radius:8px; text-decoration:none; display:flex; flex-direction:column; gap:4px; align-items:center;"><span style="font-size:20px;">📊</span><b>View Status</b><span style="font-size:11px; color:var(--bs-secondary-color);">Health & diagnostics</span></a>
+            <a href="plugin.php?plugin=fpp-AImode&page=help.php" class="buttons" style="text-align:center; padding:14px; border-radius:8px; text-decoration:none; display:flex; flex-direction:column; gap:4px; align-items:center;"><span style="font-size:20px;">📖</span><b>Help & Examples</b><span style="font-size:11px; color:var(--bs-secondary-color);">See what you can ask</span></a>
         </div>
     </fieldset>
 </div>
@@ -279,6 +302,7 @@ var aimConfig = {
     },
     renderOverview: function(){
         var tbody = $('#aim_providers_overview').empty();
+        var cards = $('#aim_providers_cards').empty();
         var def = aimConfig._defaultProvider;
         Object.keys(aimProviders).forEach(function(k){
             var p = aimConfig._providers[k] || {api_key:'',model:'',base_url:''};
@@ -290,6 +314,15 @@ var aimConfig = {
             row.append($('<td>').text(p.model || aimProviders[k].models[0] || ''));
             row.append($('<td>').text(isDefault?'★':'' ));
             tbody.append(row);
+            // Card
+            var card = $('<div>').addClass('aim-overview-card' + (isDefault?' is-default':'' )).css('cursor','pointer').attr('title','Click to configure '+k).on('click', function(){ $('#aim_provider').val(k).trigger('change'); $('html,body').animate({scrollTop:$('#aim_provider').closest('fieldset').offset().top - 20}, 300); });
+            var top = $('<div>').addClass('aim-card-top');
+            top.append($('<span>').addClass('aim-card-title').html(aimProviders[k].label + (isDefault?' <span class="badge bg-primary" style="font-size:10px;">DEFAULT</span>':'')));
+            top.append($('<span>').html(configured ? '<span class="badge bg-success">✓ Ready</span>' : '<span class="badge bg-secondary">— Not set</span>'));
+            card.append(top);
+            card.append($('<div>').addClass('aim-card-model').text((p.model || aimProviders[k].models[0] || '—') + ' · '+k));
+            if(p.base_url) card.append($('<div>').css({fontSize:'10px', color:'var(--bs-secondary-color)', fontFamily:'monospace', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}).text(p.base_url));
+            cards.append(card);
         });
     },
     loadProvider: function(prov){
