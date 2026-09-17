@@ -32,14 +32,14 @@ $aimDefaults = [
     'history_enabled' => 1,
 ];
 $aimProviders = [
-    'openai' => ['label'=>'OpenAI','defaultBase'=>'https://api.openai.com/v1','models'=>['gpt-4o','gpt-4o-mini','gpt-4-turbo','o1','o1-mini','o3-mini','o3','gpt-5','gpt-5-mini','gpt-5.6-sol']],
-    'anthropic' => ['label'=>'Anthropic (Claude)','defaultBase'=>'https://api.anthropic.com','models'=>['claude-3-5-sonnet-20241022','claude-3-5-haiku-20241022','claude-sonnet-4-6','claude-opus-4-8','claude-opus-5','claude-sonnet-5','claude-haiku-4-5']],
-    'google' => ['label'=>'Google Gemini','defaultBase'=>'https://generativelanguage.googleapis.com','models'=>['gemini-3.6-flash','gemini-3.8-flash','gemini-3.7-flash','gemini-3.5-flash','gemini-2.5-flash','gemini-2.5-pro','gemini-2.0-flash','gemini-1.5-flash']],
-    'mistral' => ['label'=>'Mistral','defaultBase'=>'https://api.mistral.ai/v1','models'=>['mistral-large-latest','mistral-small-latest','mistral-nemo','codestral-latest']],
-    'grok' => ['label'=>'Grok (xAI)','defaultBase'=>'https://api.x.ai/v1','models'=>['grok-3','grok-3-mini','grok-2','grok-beta']],
-    'openrouter' => ['label'=>'OpenRouter','defaultBase'=>'https://openrouter.ai/api/v1','models'=>['openai/gpt-4o','openai/gpt-4o-mini','openai/gpt-5','anthropic/claude-3.5-sonnet','anthropic/claude-opus-4','google/gemini-2.5-flash','google/gemini-3.6-flash','x-ai/grok-3']],
-    'ollama' => ['label'=>'Ollama (Local)','defaultBase'=>'http://localhost:11434','models'=>['llama3.1','llama3.3','qwen2.5','qwen3','mistral','gemma2','gemma3','phi4']],
-    'azure' => ['label'=>'Azure OpenAI','defaultBase'=>'https://{your-endpoint}.openai.azure.com','models'=>['gpt-4o','gpt-4o-mini','gpt-35-turbo','gpt-5','o3']],
+    'openai' => ['label'=>'OpenAI','defaultBase'=>'https://api.openai.com/v1','models'=>['gpt-4o','gpt-4o-mini','gpt-4-turbo','o1','o1-mini','o3-mini','o3','gpt-5','gpt-5-mini','gpt-5-nano','gpt-5.6-sol','gpt-5.6-terra','gpt-5.6-luna','gpt-4.1','gpt-4.1-mini']],
+    'anthropic' => ['label'=>'Anthropic (Claude)','defaultBase'=>'https://api.anthropic.com','models'=>['claude-3-5-sonnet-20241022','claude-3-5-haiku-20241022','claude-3-opus-20240229','claude-3-haiku-20240307','claude-sonnet-4-6','claude-opus-4-8','claude-opus-5','claude-sonnet-5','claude-haiku-4-5']],
+    'google' => ['label'=>'Google Gemini','defaultBase'=>'https://generativelanguage.googleapis.com','models'=>['gemini-3.6-flash','gemini-3.8-flash','gemini-3.7-flash','gemini-3.5-flash','gemini-3.5-flash-lite','gemini-2.5-flash','gemini-2.5-pro','gemini-1.5-flash','gemini-1.5-pro']],
+    'mistral' => ['label'=>'Mistral','defaultBase'=>'https://api.mistral.ai/v1','models'=>['mistral-large-latest','mistral-small-latest','mistral-nemo','open-mistral-7b','mistral-large-2407','codestral-latest']],
+    'grok' => ['label'=>'Grok (xAI)','defaultBase'=>'https://api.x.ai/v1','models'=>['grok-3','grok-3-mini','grok-3-fast','grok-2','grok-beta','grok-2-mini']],
+    'openrouter' => ['label'=>'OpenRouter','defaultBase'=>'https://openrouter.ai/api/v1','models'=>['openai/gpt-4o','openai/gpt-4o-mini','openai/gpt-5','openai/gpt-5-mini','anthropic/claude-3.5-sonnet','anthropic/claude-opus-4','google/gemini-2.5-flash','google/gemini-3.6-flash','mistralai/mistral-large','x-ai/grok-3']],
+    'ollama' => ['label'=>'Ollama (Local)','defaultBase'=>'http://localhost:11434','models'=>['llama3.1','llama3.3','qwen2.5','qwen3','mistral','gemma2','gemma3','phi3','phi4','codellama','deepseek-r1']],
+    'azure' => ['label'=>'Azure OpenAI','defaultBase'=>'https://{your-endpoint}.openai.azure.com','models'=>['gpt-4o','gpt-4o-mini','gpt-35-turbo','gpt-5','gpt-5-mini','o3','o4-mini']],
 ];
 // Load settings and ensure providers map exists (migrate legacy)
 $aimSettings = $aimDefaults;
@@ -341,11 +341,12 @@ var aimConfig = {
         var list = fetched || meta.models || [];
         if (fetched && fetched.length) aimConfig._fetchedModels[prov] = fetched;
         else if (aimConfig._fetchedModels[prov]) list = aimConfig._fetchedModels[prov];
+        // Ensure default for this provider is flash for Gemini (already first in preset = gemini-3.6-flash)
+        if(!list || !list.length) list = meta.models || [];
         var sel = $('#aim_model_select').empty();
         (list||[]).forEach(function(m){ sel.append($('<option>',{value:m,text:m})); });
         var cur = $('#aim_model').val();
         if (cur && list.indexOf(cur)===-1 && cur.indexOf('/')===-1) {
-            // keep custom but warn if really mismatched
             sel.append($('<option>',{value:cur,text:cur+' (custom)'}));
         } else if (cur && list.indexOf(cur)===-1) {
             sel.append($('<option>',{value:cur,text:cur+' (custom)'}));
@@ -355,23 +356,30 @@ var aimConfig = {
         else if (cur) sel.val(cur);
         $('#aim_default_base').text(meta.defaultBase || '');
         if (fetched) {
-            $('#aim_models_status').html('<span class="text-success">✓ '+fetched.length+' models</span>');
+            $('#aim_models_status').html('<span class="text-success">✓ '+fetched.length+' live</span>');
             setTimeout(function(){ $('#aim_models_status').text(''); }, 4000);
+        } else if(!fetched && list.length && prov!=='ollama' && !$('#aim_api_key').val()){
+            $('#aim_models_status').html('<span class="text-secondary">Preset '+list.length+' — enter key + ↻ for live</span>');
+        } else if(!fetched && list.length){
+            $('#aim_models_status').html('<span class="text-secondary">Preset '+list.length+' — fetching live…</span>');
         }
         var hint=''; if(prov==='openai') hint='sk-…'; else if(prov==='anthropic') hint='sk-ant-…'; else if(prov==='google') hint='AIza…'; else if(prov==='grok') hint='xai-…'; else if(prov==='openrouter') hint='sk-or-…'; else if(prov==='ollama') hint='no key needed'; else if(prov==='azure') hint='Azure API key';
         $('#aim_key_hint').text(hint ? 'Expected: '+hint : '');
-        if(prov==='ollama') $('#aim_api_key').attr('placeholder','No key needed for Ollama'); else $('#aim_api_key').attr('placeholder','Paste your API key');
+        if(prov==='ollama') $('#aim_api_key').attr('placeholder','No key needed for Ollama — will fetch live from '+ (meta.defaultBase || 'http://<ollama-ip>:11434')); else $('#aim_api_key').attr('placeholder','Paste your API key to fetch live models');
     },
     fetchModels: function(manual){
         var prov = $('#aim_provider').val();
         var key = $('#aim_api_key').val();
         var base = $('#aim_base_url').val();
+        // Always show preset immediately; dynamic fetch augments it
         if (prov!=='ollama' && !key) {
-            if(manual) $.jGrowl('Enter API key for '+prov+' to fetch models',{themeState:'warning'});
-            $('#aim_models_status').html('<span class="text-warning">Need API key</span>');
+            if(manual) $.jGrowl('Enter API key for '+prov+' to fetch live models — showing preset '+ (aimProviders[prov]?aimProviders[prov].models.length:0) +' instead',{themeState:'warning'});
+            $('#aim_models_status').html('<span class="text-warning">Preset '+ (aimProviders[prov]?aimProviders[prov].models.length:0) +' — need key for live</span>');
+            // Still populate preset so dropdown is never empty
+            aimConfig.populateModels();
             return;
         }
-        $('#aim_models_status').html('<span class="text-secondary">Fetching…</span>');
+        $('#aim_models_status').html('<span class="text-secondary">Fetching live…</span>');
         $('#aim_refresh_models').prop('disabled',true);
         $.ajax({
             url:'api/plugin/fpp-AImode/models',
@@ -379,19 +387,23 @@ var aimConfig = {
             contentType:'application/json',
             data: JSON.stringify({provider: prov, api_key: key, base_url: base}),
             dataType:'json',
+            timeout: 12000,
             success:function(r){
                 if(r.success && r.models && r.models.length){
                     aimConfig.populateModels(r.models);
-                    if(manual) $.jGrowl('Fetched '+r.models.length+' models for '+prov,{themeState:'success'});
+                    if(manual) $.jGrowl('Fetched '+r.models.length+' live models for '+prov,{themeState:'success'});
                 } else {
-                    $('#aim_models_status').html('<span class="text-danger">'+(r.error||'Failed')+'</span>');
-                    if(manual) $.jGrowl(r.error||'Failed to fetch models',{themeState:'error'});
+                    var presetN = (aimProviders[prov] ? aimProviders[prov].models.length : 0);
+                    $('#aim_models_status').html('<span class="text-warning">Preset '+presetN+' — '+ (r.error||'live unavailable') +'</span>');
+                    // keep preset already shown
+                    if(manual) $.jGrowl((r.error||'Live fetch failed')+' — showing preset',{themeState:'warning'});
                 }
             },
-            error:function(xhr){
-                var m='Could not fetch models'; try{var j=JSON.parse(xhr.responseText); if(j.error) m=j.error;}catch(e){}
-                $('#aim_models_status').html('<span class="text-danger">'+m+'</span>');
-                if(manual) $.jGrowl(m,{themeState:'error'});
+            error:function(xhr, status){
+                var m='Could not fetch models'; try{var j=JSON.parse(xhr.responseText); if(j.error) m=j.error;}catch(e){ if(status==='timeout') m='timeout — showing preset'; }
+                var presetN2 = (aimProviders[prov] ? aimProviders[prov].models.length : 0);
+                $('#aim_models_status').html('<span class="text-warning">Preset '+presetN2+' — '+m+'</span>');
+                if(manual) $.jGrowl(m+' — showing preset',{themeState:'warning'});
             },
             complete:function(){ $('#aim_refresh_models').prop('disabled',false); }
         });
