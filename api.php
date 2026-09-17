@@ -1466,6 +1466,11 @@ function aimSaveEndpoint() {
     // Allow partial updates: merge with existing
     $existing = aimLoadSettings();
     $merged = array_merge($existing, $body);
+    // Don't treat stale top-level api_key/model/base_url from existing as explicit unless body actually sent them
+    // This prevents switching defaultProvider from clobbering the new default's stored key with the old default's key
+    if (!isset($body['api_key'])) unset($merged['api_key']);
+    if (!isset($body['model'])) unset($merged['model']);
+    if (!isset($body['base_url'])) unset($merged['base_url']);
     // Coerce types from strings
     if (isset($body['temperature'])) $merged['temperature'] = (float)$body['temperature'];
     if (isset($body['max_tokens'])) $merged['max_tokens'] = (int)$body['max_tokens'];
