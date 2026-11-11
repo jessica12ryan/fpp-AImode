@@ -7,6 +7,7 @@
     "srcURL": "https://github.com/jessica12ryan/fpp-AImode.git",
     "bugURL": "https://github.com/jessica12ryan/fpp-AImode/issues",
     "iconURL": "https://raw.githubusercontent.com/jessica12ryan/fpp-AImode/main/icon.png",
+    "releaseNotesStyle": "gitHistory",
     "versions": [
         {
             "minFPPVersion": "8.0",
