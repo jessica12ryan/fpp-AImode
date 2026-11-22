@@ -17,9 +17,13 @@ PLUGIN_LOG="${LOGDIR}/plugin-fpp-AImode.log"
 echo "$(date '+%Y-%m-%d %H:%M:%S') fpp-AImode: uninstall" >> "${PLUGIN_LOG}" 2>/dev/null || true
 echo "fpp-AImode: uninstalling"
 
-# Remove plugindata if it was created by this plugin — idempotent, no error on second run
+# Remove plugindata on a real uninstall. FPP 10.4+ sets FPP_PLUGIN_REINSTALL=1
+# during the uninstall half of a Reinstall (§2.12): keep API keys and history
+# then, because the plugin directory itself is always deleted and FPP re-clones
+# it immediately afterwards. Never key the delete on "= 0" — unset means a
+# genuine uninstall on FPP 10.3 and earlier too.
 # Do not delete logs: FPP manages plugin-*.log rotation and expects to keep it for support
-if [ -d "${PLUGINDATA}" ]; then
+if [ "${FPP_PLUGIN_REINSTALL:-0}" != "1" ] && [ -d "${PLUGINDATA}" ]; then
     echo "fpp-AImode: removing plugindata ${PLUGINDATA}"
     rm -rf "${PLUGINDATA}" 2>/dev/null || true
 fi

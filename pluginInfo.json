@@ -129,8 +129,13 @@
         ],
         "sensors": [],
         "remoteAccess": "none",
-        "systemChanges": [],
+        "systemChanges": [
+            {
+                "kind": "core-settings",
+                "what": "sets FPP's restart flag when you use Flag FPPD Restart, Update or Reinstall in the Developer tab"
+            }
+        ],
         "closedCode": false,
-        "other": "API keys stored in plugindata with 0600. Use FPP UI password if exposed. Keys never logged."
+        "other": "API keys stored in plugindata with 0600; keys never logged. The Developer tab (UI level 3+) exposes Update, Reinstall, Uninstall and Flag FPPD Restart actions that change this plugin or request an FPPD restart; anyone who can reach FPP's web UI can call these routes, which have no separate login."
     }
 }

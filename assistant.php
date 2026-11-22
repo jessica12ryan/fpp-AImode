@@ -143,7 +143,7 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
                     <?php if (!empty($aimSettings['auto_approve'])) echo '<span class="badge bg-success" title="Tools run automatically">✓ Auto-approve</span>'; else echo '<span class="badge bg-secondary" title="You must approve each tool">Manual approve</span>'; ?>
                 </span>
                 <span id="aimConvProviderStatus" class="text-secondary" style="font-size:11px;"></span>
-                <label style="display:flex; gap:6px; align-items:center; font-size:12px; margin-left:auto; cursor:pointer; white-space:nowrap; background:#fff; padding:4px 8px; border-radius:6px; border:1px solid var(--bs-border-color);"><input type="checkbox" id="aimVerbose" style="margin:0;"> Verbose</label>
+                <label style="display:flex; gap:6px; align-items:center; font-size:12px; margin-left:auto; cursor:pointer; white-space:nowrap; background:var(--bs-tertiary-bg, transparent); padding:4px 8px; border-radius:6px; border:1px solid var(--bs-border-color);"><input type="checkbox" id="aimVerbose" style="margin:0;"> Verbose</label>
             </div>
             <div class="aim-help">
                 💡 <b>Tip:</b> <b>Enter</b> to send, <b>Shift+Enter</b> for newline. Each reply may propose FPP actions — click <b>✓ Approve</b> to run them. Dry-run is off by default; toggle in <a href="plugin.php?plugin=fpp-AImode&page=config.php">Config</a>.
@@ -174,7 +174,9 @@ var aimVerbose = {
             $('.aim-verbose-summary').hide();
         } else {
             $('.aim-verbose-details').hide();
-            $('.aim-tool-card').hide();
+            // Pending approval cards must stay visible even with Verbose off,
+            // otherwise manual approval is impossible.
+            $('.aim-tool-card:not(.aim-tool-pending)').hide();
             $('.aim-verbose-summary').show();
         }
     }
@@ -209,7 +211,7 @@ var aimChat = {
         var argStr = JSON.stringify(args, null, 2);
         var id = 'tool_'+Date.now()+'_'+idx;
         var encoded = encodeURIComponent(JSON.stringify(args));
-        var html = '<div class="aim-tool-card" id="'+id+'" data-name="'+aimChat.esc(name)+'" data-args="'+aimChat.esc(encoded)+'">';
+        var html = '<div class="aim-tool-card aim-tool-pending" id="'+id+'" data-name="'+aimChat.esc(name)+'" data-args="'+aimChat.esc(encoded)+'">';
         html += '<b>🔧 Tool:</b> <code>'+aimChat.esc(name)+'</code>';
         html += '<pre>'+aimChat.esc(argStr)+'</pre>';
         html += '<div style="display:flex; gap:6px; flex-wrap:wrap;">';
@@ -223,9 +225,8 @@ var aimChat = {
         var prompt = $('#aimPrompt').val().trim();
         if(!prompt){ $.jGrowl('Type a prompt first',{themeState:'error'}); return; }
         var convId = aimConv.currentId || aimChat.currentConvId;
-        if(!convId && aimConv.currentId) convId = aimConv.currentId;
         aimChat.busy=true;
-        $('#aimSendBtn').prop('disabled',true).val('…');
+        $('#aimSendBtn').prop('disabled',true).text('…');
         $('#aimChatStatus').text('Thinking…');
         $('#aimThinking').addClass('show');
         var _provLabel = $('#aimConvProvider').val() || $('#aimConvProvider option:selected').text() || 'AI';
@@ -271,42 +272,37 @@ var aimChat = {
                     var verboseOn = aimVerbose.isOn();
                     var container = $('<div style="margin-bottom:12px;">');
                     if(r.dry_run) container.append('<div class="text-warning" style="font-size:12px; margin-bottom:4px;">Dry-run enabled — tools not executed. Disable in Config to allow execution.</div>');
+                    var autoExecuted = !!(r.auto_approve && r.executed && r.executed.length);
                     if(!verboseOn){
-                        // Simplified view: just a one-line summary, no JSON
-                        var exec = r.executed || [];
-                        var okCount = exec.filter(function(e){ return e.result && e.result.success; }).length;
-                        var failCount = exec.length - okCount;
-                        var summary = '';
-                        if(r.auto_approve && exec.length){
-                            if(failCount>0) summary = '<span class="text-warning">⚠️ '+(exec.length)+' tool(s) executed — '+okCount+' ok, '+failCount+' failed</span>';
-                            else summary = '<span class="text-success">✓ '+(exec.length)+' tool(s) executed</span>';
-                        } else if(exec.length===0 && r.tool_calls.length){
-                            summary = '<span class="text-secondary">⚙️ '+r.tool_calls.length+' tool(s) proposed — enable Verbose to see details</span>';
+                        if(autoExecuted){
+                            var okCount = r.executed.filter(function(e){ return e.result && e.result.success; }).length;
+                            var failCount = r.executed.length - okCount;
+                            container.append('<div class="aim-verbose-summary" style="font-size:11px; margin-top:6px;">'+(failCount>0
+                                ? '<span class="text-warning">⚠️ '+r.executed.length+' tool(s) executed — '+okCount+' ok, '+failCount+' failed</span>'
+                                : '<span class="text-success">✓ '+r.executed.length+' tool(s) executed</span>')+'</div>');
+                        } else {
+                            container.append('<div class="aim-verbose-summary" style="font-size:11px; margin-top:6px;"><span class="text-secondary">⚙️ '+r.tool_calls.length+' tool(s) proposed — approve below</span></div>');
                         }
-                        if(summary) container.append('<div class="aim-verbose-summary" style="font-size:11px; margin-top:6px;">'+summary+'</div>');
                     }
-                    // Full verbose cards (hidden when verbose off)
+                    // Auto-executed detail cards are verbose-only.
                     var verboseWrap = $('<div>').addClass('aim-verbose-details');
                     if(!verboseOn) verboseWrap.hide();
-                    if(r.auto_approve && r.executed && r.executed.length){
+                    if(autoExecuted){
                         r.executed.forEach(function(ex){
                             var ok = ex.result && ex.result.success;
-                            verboseWrap.append('<div class="aim-tool-card" style="border-left:3px solid var('+(ok?'--bs-success':'--bs-danger')+')"><b>🔧 '+(ex.call.name||'')+'</b> <span class="text-secondary" style="font-size:11px;">(auto-executed)</span><pre>'+aimChat.esc(JSON.stringify(ex.call.arguments||{},null,2))+'</pre><div style="font-size:12px; color:var('+(ok?'--bs-success':'--bs-danger')+')">'+aimChat.esc(ok ? '✓ '+(JSON.stringify(ex.result.result||ex.result).slice(0,600)) : '✗ '+(ex.result.error||'failed'))+'</div></div>');
+                            verboseWrap.append('<div class="aim-tool-card" style="border-left:3px solid var('+(ok?'--bs-success':'--bs-danger')+')"><b>🔧 '+aimChat.esc(ex.call.name||'')+'</b> <span class="text-secondary" style="font-size:11px;">(auto-executed)</span><pre>'+aimChat.esc(JSON.stringify(ex.call.arguments||{},null,2))+'</pre><div style="font-size:12px; color:var('+(ok?'--bs-success':'--bs-danger')+')">'+aimChat.esc(ok ? '✓ '+(JSON.stringify(ex.result.result||ex.result).slice(0,600)) : '✗ '+(ex.result.error||'failed'))+'</div></div>');
                         });
                     } else {
+                        // Pending tools: actionable cards stay visible in both
+                        // themes/verbose modes so approval is always possible.
                         r.tool_calls.forEach(function(tc,i){
-                            verboseWrap.append(aimChat.renderTool(tc,i));
+                            container.append(aimChat.renderTool(tc,i));
                         });
                         if(r.tool_calls.length>1){
-                            verboseWrap.append('<div style="margin-top:6px;"><button class="buttons" onclick="aimChat.approveAll(this)">✓ Approve All ('+r.tool_calls.length+')</button></div>');
+                            container.append('<div style="margin-top:6px;"><button class="buttons" onclick="aimChat.approveAll(this)">✓ Approve All ('+r.tool_calls.length+')</button></div>');
                         }
                     }
                     container.append(verboseWrap);
-                    // Always show a tiny summary even in verbose mode for quick glance
-                    if(verboseOn && r.auto_approve && r.executed && r.executed.length){
-                        var s2 = r.executed.length + ' tool(s) executed';
-                        container.prepend('<div class="text-secondary" style="font-size:11px;">'+s2+'</div>');
-                    }
                     $('#aimMessages').append(container);
                     aimChat.scrollBottom();
                 }
@@ -323,14 +319,15 @@ var aimChat = {
                 $('#aimChatStatus').text('Failed');
                 clearInterval(aimChat._thinkTimer);
                 $('#aimThinking').removeClass('show');
-                // If request failed but server is still thinking in background, start polling
-                if(aimConv.currentId) aimConv.startPolling(aimConv.currentId);
+                // Polling is started by complete() -> checkAndPoll() if the
+                // server is still thinking, so don't start it here only to
+                // have complete() cancel it immediately.
             },
             complete: function(){
                 clearInterval(aimChat._thinkTimer);
                 $('#aimThinking').removeClass('show');
                 aimChat.busy=false;
-                $('#aimSendBtn').prop('disabled',false).val('Send ▶');
+                $('#aimSendBtn').prop('disabled',false).text('Send ▶');
                 setTimeout(function(){ $('#aimChatStatus').text(''); }, 4000);
                 // Ensure polling stops if we got final result, otherwise polling will handle
                 aimConv.stopPolling();
@@ -534,7 +531,7 @@ var aimConv = {
                                     var fail2 = exec2.length - ok2;
                                     txt = (fail2>0 ? '<span class="text-warning">⚠️ '+exec2.length+' tool(s) — '+ok2+' ok, '+fail2+' failed</span>' : '<span class="text-success">✓ '+exec2.length+' tool(s) executed</span>');
                                 } else {
-                                    txt = '<span class="text-secondary">⚙️ '+e.meta.tool_calls.length+' tool(s) — enable Verbose to see details</span>';
+                                    txt = '<span class="text-secondary">⚙️ '+e.meta.tool_calls.length+' tool(s) — approve below</span>';
                                 }
                                 container.append('<div class="aim-verbose-summary" style="font-size:11px; margin-top:4px;">'+txt+'</div>');
                             }
@@ -543,12 +540,17 @@ var aimConv = {
                             if(e.meta.executed && e.meta.executed.length){
                                 e.meta.executed.forEach(function(ex){
                                     var ok = ex.result && ex.result.success;
-                                    verboseWrap2.append('<div class="aim-tool-card" style="border-left:3px solid var('+(ok?'--bs-success':'--bs-danger')+')"><b>🔧 '+(ex.call.name||'')+'</b> <span class="text-secondary" style="font-size:11px;">(auto-executed)</span><pre>'+aimChat.esc(JSON.stringify(ex.call.arguments||{},null,2))+'</pre></div>');
+                                    verboseWrap2.append('<div class="aim-tool-card" style="border-left:3px solid var('+(ok?'--bs-success':'--bs-danger')+')"><b>🔧 '+aimChat.esc(ex.call.name||'')+'</b> <span class="text-secondary" style="font-size:11px;">(auto-executed)</span><pre>'+aimChat.esc(JSON.stringify(ex.call.arguments||{},null,2))+'</pre></div>');
                                 });
                             } else {
-                                e.meta.tool_calls.forEach(function(tc){
-                                    verboseWrap2.append('<div class="aim-tool-card" style="border-left:3px solid var(--bs-warning)"><b>🔧 '+(tc.name||'')+'</b><pre>'+aimChat.esc(JSON.stringify(tc.arguments||{},null,2))+'</pre></div>');
+                                // Pending approvals: render actionable cards so
+                                // the reload after send never loses Approve.
+                                e.meta.tool_calls.forEach(function(tc,i){
+                                    container.append(aimChat.renderTool(tc,i));
                                 });
+                                if(e.meta.tool_calls.length>1){
+                                    container.append('<div style="margin-top:6px;"><button class="buttons" onclick="aimChat.approveAll(this)">✓ Approve All ('+e.meta.tool_calls.length+')</button></div>');
+                                }
                             }
                             container.append(verboseWrap2);
                             $('#aimMessages').append(container);

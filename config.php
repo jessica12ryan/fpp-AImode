@@ -60,9 +60,7 @@ if (file_exists($aimSettingsFile)) {
         foreach (array_keys($aimProviders) as $k) {
             if (!isset($aimSettings['providers'][$k]) || !is_array($aimSettings['providers'][$k])) {
                 $def = $aimProviders[$k];
-                $aimSettings['providers'][$k] = ['api_key'=>'','model'=>$def['defaultBase'] ? ($def['models'][0] ?? '') : '','base_url'=>''];
-                // Actually model should be defaultModel, not base
-                $aimSettings['providers'][$k]['model'] = $aimProviders[$k]['models'][0] ?? '';
+                $aimSettings['providers'][$k] = ['api_key'=>'','model'=>$def['models'][0] ?? '','base_url'=>''];
             } else {
                 if (!isset($aimSettings['providers'][$k]['api_key'])) $aimSettings['providers'][$k]['api_key'] = '';
                 if (!isset($aimSettings['providers'][$k]['model']) || $aimSettings['providers'][$k]['model'] === '') {
@@ -249,7 +247,7 @@ fieldset legend { font-weight:700; font-size:14px; padding:0 8px; }
                     <h6 style="font-size:13px; font-weight:700; margin:0 0 10px 0;">⚡ Execution</h6>
                     <label style="display:flex; gap:8px; align-items:center; font-size:13px; margin-bottom:8px; cursor:pointer;"><input type="checkbox" id="aim_dryrun" class="form-check-input" <?php echo !empty($aimSettings['dry_run'])?'checked':''; ?>> <span><b>Dry-run</b> — propose only, never execute</span></label>
                     <label style="display:flex; gap:8px; align-items:center; font-size:13px; margin-bottom:8px; cursor:pointer;"><input type="checkbox" id="aim_auto" class="form-check-input" <?php echo !empty($aimSettings['auto_approve'])?'checked':''; ?>> <span><b>Auto-approve</b> — run tools without manual approval</span></label>
-                    <div class="text-secondary" style="font-size:11px; margin-top:8px; padding:6px 8px; background:#fff; border-radius:6px; border:1px solid var(--bs-border-color,#eee);">💡 Auto-approve is on by default for a smooth experience. Uncheck for a careful review step.</div>
+                    <div class="text-secondary" style="font-size:11px; margin-top:8px; padding:6px 8px; background:var(--bs-tertiary-bg, transparent); border-radius:6px; border:1px solid var(--bs-border-color);">💡 Auto-approve is on by default for a smooth experience. Uncheck for a careful review step.</div>
                 </div>
                 <div style="background:var(--bs-tertiary-bg,#f8f9fa); border:1px solid var(--bs-border-color,#dee2e6); border-radius:8px; padding:14px;">
                     <h6 style="font-size:13px; font-weight:700; margin:0 0 10px 0;">📦 Context & Memory</h6>
@@ -281,9 +279,24 @@ fieldset legend { font-weight:700; font-size:14px; padding:0 8px; }
     </fieldset>
 </div>
 
+<?php
+// Never send stored API keys to the browser (§14.4). Expose only a "set"
+// flag and a masked hint; a blank key field means "keep the stored key".
+$aimJsSettings = $aimSettings;
+if (!empty($aimJsSettings['providers']) && is_array($aimJsSettings['providers'])) {
+    foreach ($aimJsSettings['providers'] as $aimPk => &$aimPv) {
+        $aimHasKey = !empty($aimPv['api_key']);
+        $aimPv['key_set'] = $aimHasKey ? 1 : 0;
+        $aimPv['key_hint'] = $aimHasKey ? '••••' . substr($aimPv['api_key'], -4) : '';
+        $aimPv['api_key'] = '';
+    }
+    unset($aimPv);
+}
+$aimJsSettings['api_key'] = '';
+?>
 <script>
 var aimProviders = <?php echo json_encode($aimProviders); ?>;
-var aimSettings = <?php echo json_encode($aimSettings); ?>;
+var aimSettings = <?php echo json_encode($aimJsSettings); ?>;
 
 var aimConfig = {
     _fetchedModels: {},
@@ -308,7 +321,7 @@ var aimConfig = {
             var p = aimConfig._providers[k] || {api_key:'',model:'',base_url:''};
             var isOllama = k==='ollama';
             // Ollama requires explicit host config and local install — not enabled by default
-            var configured = (p.api_key && p.api_key.length>0) || (isOllama && p.base_url && p.base_url.length>0);
+            var configured = (p.key_set || (p.api_key && p.api_key.length>0)) || (isOllama && p.base_url && p.base_url.length>0);
             var isDefault = k===def;
             var row = $('<tr>').addClass(isDefault?'table-info':'');
             row.append($('<td>').html('<b>'+aimProviders[k].label+'</b> ('+k+')' + (isDefault?' <span class="badge bg-primary">default</span>':'')));
@@ -330,16 +343,25 @@ var aimConfig = {
             cards.append(card);
         });
     },
+    // Blank key field means "keep the stored key" — the server resolves this
+    // sentinel against plugindata, so the key itself is never in the page.
+    keepKeySentinel: '__AIM_KEEP_KEY__',
+    hasSavedKey: function(prov){ var p = aimConfig._providers[prov] || {}; return !!p.key_set; },
+    keyForRequest: function(prov){
+        var typed = $('#aim_api_key').val();
+        return (!typed && aimConfig.hasSavedKey(prov)) ? aimConfig.keepKeySentinel : typed;
+    },
     loadProvider: function(prov){
-        var p = aimConfig._providers[prov] || {api_key:'',model:'',base_url:''};
+        var p = aimConfig._providers[prov] || {api_key:'',model:'',base_url:'',key_set:0};
         var meta = aimProviders[prov] || {models:[], defaultBase:''};
-        $('#aim_api_key').val(p.api_key || '');
+        $('#aim_api_key').val(''); // stored keys are never sent to the browser
         $('#aim_model').val(p.model || meta.models[0] || '');
         $('#aim_base_url').val(p.base_url || '');
         aimConfig.populateModels();
         var isOllama2 = prov==='ollama';
         if(isOllama2) $('#aim_key_status').html(p.base_url ? '<span class="text-success">✓ host set</span>' : '<span class="text-warning">— not installed</span>');
-        else $('#aim_key_status').text(p.api_key ? '✓ key set' : '—');
+        else $('#aim_key_status').html(p.key_set ? ('<span class="text-success">✓ key set</span> <span class="text-secondary">'+escHtml(p.key_hint||'')+'</span>') : '—');
+        $('#aim_api_key').attr('placeholder', p.key_set ? 'Key saved — leave blank to keep, or paste a new key' : 'Paste API key here');
         setTimeout(function(){ aimConfig.fetchModels(false); }, 400);
     },
     populateModels: function(fetched){
@@ -390,7 +412,7 @@ var aimConfig = {
     },
     fetchModels: function(manual){
         var prov = $('#aim_provider').val();
-        var key = $('#aim_api_key').val();
+        var key = aimConfig.keyForRequest(prov);
         var base = $('#aim_base_url').val();
         var isOllama = prov==='ollama';
         // Ollama requires host to be set — not installed by default
@@ -439,17 +461,26 @@ var aimConfig = {
     },
     saveProvider: function(){
         var prov = $('#aim_provider').val();
+        var typedKey = $('#aim_api_key').val();
+        var hadKey = aimConfig.hasSavedKey(prov);
         var data = {
-            api_key: $('#aim_api_key').val(),
+            api_key: aimConfig.keyForRequest(prov),
             model: $('#aim_model').val() || $('#aim_model_select').val(),
             base_url: $('#aim_base_url').val()
         };
         if(!data.model){ $.jGrowl('Model required',{themeState:'error'}); return; }
-        if(prov!=='ollama' && !data.api_key){
+        if(prov!=='ollama' && !typedKey && !hadKey){
             if(!confirm('No API key for '+prov+'. Save anyway?')) return;
         }
-        // Update local map
-        aimConfig._providers[prov] = data;
+        // Update local map without ever keeping a plaintext key here
+        aimConfig._providers[prov] = $.extend({}, aimConfig._providers[prov] || {}, {
+            // Never keep a plaintext key in browser memory either.
+            api_key: (hadKey || typedKey) ? aimConfig.keepKeySentinel : '',
+            key_set: hadKey || !!typedKey,
+            key_hint: typedKey ? ('••••'+typedKey.slice(-4)) : ((aimConfig._providers[prov]||{}).key_hint || ''),
+            model: data.model,
+            base_url: data.base_url
+        });
         // Prepare save payload with full providers map
         var payload = {
             providers: aimConfig._providers,
@@ -517,7 +548,7 @@ var aimConfig = {
         var prov = $('#aim_provider').val();
         var data = {
             provider: prov,
-            api_key: $('#aim_api_key').val(),
+            api_key: aimConfig.keyForRequest(prov),
             model: $('#aim_model').val() || $('#aim_model_select').val(),
             base_url: $('#aim_base_url').val()
         };

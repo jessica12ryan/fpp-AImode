@@ -11,6 +11,30 @@
 define('AIM_PLUGIN_DIR', __DIR__);
 define('AIM_MAX_HISTORY', 40);
 define('AIM_MAX_TOKENS_DEFAULT', 2048);
+// The Config page never receives stored API keys (§14.4). When the key field is
+// left blank for a provider that already has one, the browser sends this
+// sentinel and the server restores the stored key instead of overwriting it.
+define('AIM_KEEP_KEY_SENTINEL', '__AIM_KEEP_KEY__');
+
+function aimResolveKeepKey($key, $settings, $provider) {
+    if (trim((string)$key) === AIM_KEEP_KEY_SENTINEL) {
+        return aimGetProviderConfig($settings, $provider)['api_key'] ?? '';
+    }
+    return trim((string)$key);
+}
+
+// FPP's eight operator-owned privacy settings are off limits to plugins
+// entirely (§14.9), and core credentials must not be forwarded to an AI
+// provider without an explicit reads-core-credentials disclosure (§14.11).
+function aimIsProtectedSettingKey($key) {
+    static $blocked = [
+        'statspublish','statspublishurl','sharecrashdata','fetchvendorlogos',
+        'sendvendorserial','sendvendorlogos','privacyconsent','legaljurisdiction',
+        'password','passwd','passphrase','passcode','pwd','psk','secret',
+        'token','credential','apikey','mqttpassword','emailgpass','remotetoken',
+    ];
+    return in_array(strtolower((string)$key), $blocked, true);
+}
 
 /* ── Logging — exactly one file: <logdir>/plugin-fpp-AImode.log ── */
 /* Resolves log dir the FPP-provided way: PHP $settings['logDirectory'] first, then LOGDIR env */
@@ -285,6 +309,9 @@ function aimLoadSettings() {
 
 function aimSaveSettings($arr) {
     $defaults = aimDefaultSettings();
+    // Stored state is used to resolve the "keep existing key" sentinel. Loaded
+    // before writing so a blank key field never clobbers a saved credential.
+    $stored = aimLoadSettings();
     // Merge with defaults, but handle providers map specially to preserve per-provider configs
     $data = $arr;
     // If incoming has providers map, merge it deeply
@@ -294,11 +321,14 @@ function aimSaveSettings($arr) {
         foreach ($data['providers'] as $k => &$v) {
             $k2 = preg_replace('/[^a-z_]/', '', strtolower($k));
             if (!aimProviderExists($k2)) continue;
-            $v['api_key'] = trim((string)($v['api_key'] ?? ''));
+            $v['api_key'] = aimResolveKeepKey($v['api_key'] ?? '', $stored, $k2);
             $v['model'] = trim((string)($v['model'] ?? ''));
             if ($v['model'] === '') $v['model'] = aimGetProviders()[$k2]['defaultModel'] ?? '';
             $v['base_url'] = rtrim(trim((string)($v['base_url'] ?? '')), '/');
+            // Display-only hints sent by the Config page are not persisted.
+            unset($v['key_set'], $v['key_hint']);
         }
+        unset($v);
     }
     $data = array_merge($defaults, $data);
     // Ensure providers map is migrated/sanitized
@@ -314,7 +344,7 @@ function aimSaveSettings($arr) {
         // If incoming top-level api_key/model/base_url are explicitly set, treat them as update for default provider
         $hasExplicitTop = isset($arr['api_key']) || isset($arr['model']) || isset($arr['base_url']);
         if ($hasExplicitTop) {
-            if (isset($arr['api_key'])) $data['providers'][$defProv]['api_key'] = trim((string)$arr['api_key']);
+            if (isset($arr['api_key'])) $data['providers'][$defProv]['api_key'] = aimResolveKeepKey($arr['api_key'], $stored, $defProv);
             if (isset($arr['model'])) $data['providers'][$defProv]['model'] = trim((string)$arr['model']);
             if (isset($arr['base_url'])) $data['providers'][$defProv]['base_url'] = rtrim(trim((string)$arr['base_url']), '/');
             if ($data['providers'][$defProv]['model'] === '') $data['providers'][$defProv]['model'] = aimGetProviders()[$defProv]['defaultModel'] ?? '';
@@ -440,10 +470,17 @@ function aimGetConversationsIndexFile() {
     return aimGetConversationsDir() . '/_index.json';
 }
 function aimEnsureConversationsMigrated() {
+    // Reentrancy guard: aimSaveConversation() -> aimListConversations() ->
+    // aimEnsureConversationsMigrated(). Without the guard (and with the index
+    // written first below), a legacy history.json migrates recursively until
+    // the stack overflows.
+    static $migrating = false;
+    if ($migrating) return;
     $dir = aimGetConversationsDir();
     if (!is_dir($dir)) @mkdir($dir, 0775, true);
     $idxFile = aimGetConversationsIndexFile();
     if (file_exists($idxFile)) return;
+    $migrating = true;
     // Migrate legacy single history.json if present and no conversations yet
     $history = aimLoadHistory();
     if (!empty($history)) {
@@ -465,16 +502,19 @@ function aimEnsureConversationsMigrated() {
             'status' => 'idle',
             'messages' => $history
         ];
-        aimSaveConversation($conv);
-        // Create index
+        // Write the index FIRST so aimSaveConversation() -> aimListConversations()
+        // sees a completed migration instead of restarting it. The subsequent
+        // aimSaveConversation() just refreshes this entry.
         $idx = [['id'=>$id,'title'=>$title,'created'=>$conv['created'],'updated'=>$conv['updated'],'status'=>'idle','messageCount'=>count($history)]];
         @file_put_contents($idxFile, json_encode($idx, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)."\n", LOCK_EX);
         @chmod($idxFile, 0600);
+        aimSaveConversation($conv);
     } else {
         // Create empty index
         @file_put_contents($idxFile, "[]\n", LOCK_EX);
         @chmod($idxFile, 0600);
     }
+    $migrating = false;
 }
 function aimListConversations() {
     aimEnsureConversationsMigrated();
@@ -608,6 +648,7 @@ function aimFppGet($path, $timeout = 2) {
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
             curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1);
+            curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
             curl_setopt($ch, CURLOPT_HTTPHEADER, ['Accept: application/json']);
             $tmp = @curl_exec($ch);
             $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -631,6 +672,7 @@ function aimFppRequest($method, $path, $body = null, $timeout = 5) {
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
+        curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
         if ($content !== null) curl_setopt($ch, CURLOPT_POSTFIELDS, $content);
@@ -709,7 +751,7 @@ function aimGetTools() {
         [
             'name' => 'create_playlist',
             'description' => 'Create or overwrite a playlist. entries is array of playlist items. Each entry MUST have a valid type and required fields: type "sequence" needs sequenceName (e.g. {"type":"sequence","sequenceName":"test.fseq","enabled":1}), type "media" needs mediaName, type "both" needs both sequenceName and mediaName, type "command" needs exact FPP command name in "command" plus args array (e.g. {"type":"command","command":"Effects Stop","args":[],"enabled":1} for all effects vs {"type":"command","command":"Effect Stop","args":["MyEffect"],"enabled":1} for a single effect - these are DIFFERENT commands, use the exact name the user requested), type "effect" needs effectName, type "branch" needs branch details, type "pause" needs duration. Do NOT normalize "Effects Stop" to "Effect Stop" or vice versa - preserve pluralization exactly. Use list_playlists/get_playlist first to see existing files. Examples: effects stop -> {"name":"mine","entries":[{"type":"command","command":"Effects Stop","args":[],"enabled":1}]} , effect stop -> {"name":"mine","entries":[{"type":"command","command":"Effect Stop","args":[],"enabled":1}]}.',
-            'parameters' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string', 'description' => 'Playlist name'], 'entries' => ['type' => 'array', 'description' => 'Array of playlist entries, each with type and required fields per type - preserve exact command names', 'items' => ['type' => 'object']], 'shuffle' => ['type' => 'boolean', 'description' => 'Random shuffle']], 'required' => ['name','entries']],
+            'parameters' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string', 'description' => 'Playlist name'], 'entries' => ['type' => 'array', 'description' => 'Array of playlist entries, each with type and required fields per type - preserve exact command names', 'items' => ['type' => 'object']], 'shuffle' => ['type' => 'boolean', 'description' => 'Random shuffle (does not change repeat)'], 'repeat' => ['type' => 'boolean', 'description' => 'Loop the playlist when it finishes']], 'required' => ['name','entries']],
         ],
         [
             'name' => 'delete_playlist',
@@ -758,6 +800,9 @@ function aimExecuteTool($name, $args) {
         case 'get_settings':
             if (!empty($args['key'])) {
                 $key = $args['key'];
+                if (aimIsProtectedSettingKey($key)) {
+                    return ['success'=>false,'error'=>'That setting is protected and cannot be read by this plugin.'];
+                }
                 // Volume is runtime state, not a plain setting — fetch via fppd status for real value
                 if (strtolower($key) === 'volume') {
                     $status = aimFppGet('/api/fppd/status', 3);
@@ -776,12 +821,23 @@ function aimExecuteTool($name, $args) {
                 return ['success'=>true,'result'=>[$key=>$v]];
             }
             $data = aimFppGet('/api/settings', 3);
-            return $data !== null ? ['success'=>true,'result'=>$data] : ['success'=>false,'error'=>'Could not fetch settings'];
+            if ($data === null) return ['success'=>false,'error'=>'Could not fetch settings'];
+            if (is_array($data)) {
+                foreach ($data as $k => $unused) {
+                    if (aimIsProtectedSettingKey($k)) unset($data[$k]);
+                }
+            }
+            return ['success'=>true,'result'=>$data];
         case 'update_settings':
             if (empty($args['settings']) || !is_array($args['settings'])) {
                 return ['success'=>false,'error'=>'settings must be an object'];
             }
             $settingsIn = $args['settings'];
+            foreach (array_keys($settingsIn) as $k) {
+                if (aimIsProtectedSettingKey($k)) {
+                    return ['success'=>false,'error'=>'Setting "' . $k . '" is protected and cannot be changed by this plugin.'];
+                }
+            }
             $volumeResult = null;
             // Handle Volume specially via FPP command API for immediate effect (§3.2 command, not raw settings file)
             $volKey = null;
@@ -879,7 +935,7 @@ function aimExecuteTool($name, $args) {
             $playlistObj = [
                 'name' => $args['name'],
                 'version' => 3,
-                'repeat' => !empty($args['shuffle']) ? 1 : 0,
+                'repeat' => !empty($args['repeat']) ? 1 : 0,
                 'mainPlaylist' => $normalized,
                 'entries' => $normalized,
                 'playlistInfo' => ['total_items' => count($normalized)],
@@ -1030,9 +1086,10 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
         }
         $body = json_encode($payload);
     } elseif ($provider === 'google') {
-        // Gemini: POST {base}/v1beta/models/{model}:generateContent?key=APIKEY
-        $url = rtrim($base, '/') . '/v1beta/models/' . rawurlencode($model) . ':generateContent?key=' . urlencode($apiKey);
-        $headers = ['Content-Type: application/json'];
+        // Gemini: key goes in a header, never in the URL (§14.4 — access logs
+        // and proxies record query strings).
+        $url = rtrim($base, '/') . '/v1beta/models/' . rawurlencode($model) . ':generateContent';
+        $headers = ['Content-Type: application/json', 'x-goog-api-key: ' . $apiKey];
         // Convert messages to Gemini format: system + user/model contents
         $sysText = '';
         $contents = [];
@@ -1078,6 +1135,7 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 8);
+        curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
         curl_setopt($ch, CURLOPT_HTTPHEADER, $tryHeaders);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $tryBody);
@@ -1107,7 +1165,7 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
         $suggested = $sugMatch[1];
         if ($suggested && $suggested !== $model) {
             aimLog('Google model deprecated, auto-retry with suggested: ' . $suggested);
-            $retryUrl = rtrim($base, '/') . '/v1beta/models/' . rawurlencode($suggested) . ':generateContent?key=' . urlencode($apiKey);
+            $retryUrl = rtrim($base, '/') . '/v1beta/models/' . rawurlencode($suggested) . ':generateContent';
             list($retryResp, $retryCode, $retryErr) = $doCurl($retryUrl, $headers, $body);
             // Also try v1 with suggested if v1beta still 404
             if (!$retryErr && $retryCode === 404 && (stripos($retryResp, 'models/') !== false)) {
@@ -1362,6 +1420,7 @@ function aimDiagnosticsEndpoint() {
             if ($ch) {
                 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
                 curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+                curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
                 $resp = @curl_exec($ch);
                 $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
                 if (function_exists("curl_close") && version_compare(PHP_VERSION, "8.0", "<")) @curl_close($ch);
@@ -1406,9 +1465,9 @@ function aimFetchProviderModels($provider, $apiKey, $baseUrl, $timeout = 12) {
         $url = rtrim($base, '/') . '/v1/models';
         $headers = ['x-api-key: ' . $apiKey, 'anthropic-version: 2023-06-01'];
     } elseif ($provider === 'google') {
-        // Try v1beta first, then v1
-        $url = rtrim($base, '/') . '/v1beta/models?key=' . urlencode($apiKey);
-        $headers = [];
+        // Try v1beta first, then v1 — key in a header, not the query string
+        $url = rtrim($base, '/') . '/v1beta/models';
+        $headers = ['x-goog-api-key: ' . $apiKey];
     } elseif ($provider === 'ollama') {
         $url = rtrim($base, '/') . '/api/tags';
         $headers = [];
@@ -1420,6 +1479,7 @@ function aimFetchProviderModels($provider, $apiKey, $baseUrl, $timeout = 12) {
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
     curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+    curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
     curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
     if ($provider === 'ollama' && strpos($url, 'https://') !== 0) curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
@@ -1430,12 +1490,14 @@ function aimFetchProviderModels($provider, $apiKey, $baseUrl, $timeout = 12) {
     if ($err) return ['success'=>false,'error'=>'Curl error: ' . $err];
     if ($code === 404 && $provider === 'google') {
         // Try v1 fallback for Google
-        $altUrl = rtrim($base, '/') . '/v1/models?key=' . urlencode($apiKey);
+        $altUrl = rtrim($base, '/') . '/v1/models';
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $altUrl);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
         $resp2 = curl_exec($ch);
         $code2 = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $err2 = curl_error($ch);
@@ -1500,6 +1562,8 @@ function aimModelsEndpoint() {
         if ($apiKey === '') $apiKey = $cfg['api_key'] ?? '';
         if ($baseUrl === '') $baseUrl = $cfg['base_url'] ?? '';
     }
+    // A blank key field with a saved key sends the sentinel; restore it here.
+    $apiKey = aimResolveKeepKey($apiKey, $settings, $provider);
     if (!$provider) return json(['success'=>false,'error'=>'Provider required']);
     $res = aimFetchProviderModels($provider, $apiKey, $baseUrl);
     if (!$res['success']) {
@@ -1538,7 +1602,18 @@ function aimSaveEndpoint() {
         return json(['success'=>false,'error'=>'Could not write ' . $target . ' — check permissions on plugindata/fpp-AImode/ (should be 775 dir, 600 file, owned by fpp)']);
     }
     aimLog('Settings saved provider=' . ($merged['provider'] ?? '') . ' model=' . ($merged['model'] ?? ''));
-    $safe = $merged; $safe['api_key'] = $safe['api_key'] ? '***' . substr($safe['api_key'], -4) : '';
+    // Never echo stored keys (or the keep-key sentinel) back to the browser.
+    $safe = $merged;
+    $topKey = (string)($safe['api_key'] ?? '');
+    $safe['api_key'] = ($topKey !== '' && $topKey !== AIM_KEEP_KEY_SENTINEL) ? '***' . substr($topKey, -4) : '';
+    if (isset($safe['providers']) && is_array($safe['providers'])) {
+        foreach ($safe['providers'] as $pk => &$pv) {
+            if (!is_array($pv)) continue;
+            $pkStr = (string)($pv['api_key'] ?? '');
+            $pv['api_key'] = ($pkStr !== '' && $pkStr !== AIM_KEEP_KEY_SENTINEL) ? '***' . substr($pkStr, -4) : '';
+        }
+        unset($pv);
+    }
     return json(['success'=>true,'message'=>'Settings saved','settings'=>$safe]);
 }
 
@@ -1558,11 +1633,15 @@ function aimTestEndpoint() {
     } else {
         // Single-provider override (legacy or direct test)
         foreach (['provider','api_key','model','base_url','temperature','max_tokens'] as $k) {
-            if (isset($body[$k]) && $body[$k] !== '') $settings[$k] = $body[$k];
+            if (isset($body[$k]) && $body[$k] !== '') {
+                $settings[$k] = ($k === 'api_key')
+                    ? aimResolveKeepKey($body[$k], $settings, $testProvider)
+                    : $body[$k];
+            }
         }
         // If testing a specific provider, ensure its entry in providers map is updated
         if (isset($body['provider']) && isset($body['api_key'])) {
-            $settings['providers'][$testProvider]['api_key'] = $body['api_key'];
+            $settings['providers'][$testProvider]['api_key'] = aimResolveKeepKey($body['api_key'], $settings, $testProvider);
         }
         if (isset($body['model'])) $settings['providers'][$testProvider]['model'] = $body['model'];
         if (isset($body['base_url'])) $settings['providers'][$testProvider]['base_url'] = $body['base_url'];
@@ -1634,17 +1713,18 @@ function aimChatEndpoint() {
     if ($reqProvider && aimProviderExists($reqProvider)) {
         $defProvider = $reqProvider;
         $effective = aimGetProviderConfig($settings, $defProvider);
-        if (isset($body['api_key']) && $body['api_key'] !== '') $effective['api_key'] = trim((string)$body['api_key']);
+        if (isset($body['api_key']) && $body['api_key'] !== '') {
+            $effective['api_key'] = aimResolveKeepKey($body['api_key'], $settings, $defProvider);
+        }
         if (isset($body['model']) && $body['model'] !== '') $effective['model'] = trim((string)$body['model']);
         if (isset($body['base_url']) && $body['base_url'] !== '') $effective['base_url'] = trim((string)$body['base_url']);
         // Persist per-conversation provider/model if changed via request
         $conv['provider'] = $effective['provider'];
         $conv['model'] = $effective['model'];
         aimSaveConversation($conv);
-    } else if ($convProvider && $convProvider !== $defProvider) {
-        // Ensure conversation's provider is reflected in effective for logging
-        $effective['provider'] = $convProvider;
     }
+    // No else-if needed: $defProvider was initialised from $convProvider, so
+    // $effective already reflects the conversation's provider in that case.
     // Merge effective into settings copy for provider calls
     $effSettings = $settings;
     $effSettings['provider'] = $effective['provider'];
@@ -1674,9 +1754,8 @@ function aimChatEndpoint() {
         $messages[] = ['role'=>'user','content'=>"FPP LIVE CONTEXT (do not repeat verbatim, use for tool calls):\n" . $ctx];
         $messages[] = ['role'=>'assistant','content'=>'Understood. I will use get_/list_ tools to verify before making changes and explain each action.'];
     }
-    $histSlice = array_slice($conv['messages'] ?? [], -13, -1); // last 12 before current prompt (current already in conv but we add prompt explicitly above, so -13,-1 gives 12 prior)
-    // Alternatively, use conversation messages excluding the just-added prompt (we add prompt again below)
-    // Simpler: use all messages except last (the prompt we just added) as history
+    // Use all stored messages except the just-added prompt (added again below)
+    // as conversation history for the model.
     $historyForLLM = array_slice($conv['messages'], 0, -1);
     $historyForLLM = array_slice($historyForLLM, -12);
     foreach ($historyForLLM as $h) {
@@ -1795,10 +1874,8 @@ function aimChatEndpoint() {
     $conv['messages'][] = ['role'=>'assistant','content'=>$finalReply,'ts'=>date('Y-m-d H:i:s'),'meta'=>['tool_calls'=>$allToolCalls,'executed'=>$allExecuted,'provider'=>$finalProvider,'model'=>$finalModel]];
     $conv['status'] = 'idle';
     $conv['updated'] = date('Y-m-d H:i:s');
-    // Update title if still generic and we have a good final reply
-    if ((strpos($conv['title'] ?? '', 'Chat ') === 0) && !empty($finalReply)) {
-        // Keep original title from prompt, not overwrite
-    }
+    // Titles are set from the first prompt at conversation creation; a final
+    // reply must not overwrite them.
     aimSaveConversation($conv);
 
     aimLog('Chat final reply conv=' . $conversationId . ' len=' . strlen($finalReply) . ' total tools=' . count($allToolCalls) . ' executed=' . count($allExecuted));
@@ -1958,7 +2035,10 @@ function aimCheckUpdatesEndpoint() {
 function aimDoGitUpdate($preserveConfig = true) {
     $pluginDir = AIM_PLUGIN_DIR;
     $backupDir = sys_get_temp_dir() . '/fpp-aimode-backup';
-    @mkdir($backupDir, 0777, true);
+    // These backups contain API keys: private directory (0700), and copied
+    // files are explicitly 0600 (§5, §14.4). Tighten an older loose dir too.
+    @mkdir($backupDir, 0700, true);
+    @chmod($backupDir, 0700);
     // Preserve plugindata (new) and legacy config for migration (§14.11 credentials in plugindata)
     $plugindataSettings = aimGetSettingsFile();
     $plugindataHistory = aimGetHistoryFile();
@@ -1968,7 +2048,8 @@ function aimDoGitUpdate($preserveConfig = true) {
     if ($preserveConfig) {
         foreach ([$plugindataSettings, $plugindataHistory, $legacySettings, $legacyHistory] as $f) {
             if (file_exists($f)) {
-                @copy($f, $backupDir . '/' . str_replace('/', '_', ltrim(str_replace($plugindataSettings, 'plugindata_settings.json', $f), '/')));
+                $backupFile = $backupDir . '/' . str_replace('/', '_', ltrim(str_replace($plugindataSettings, 'plugindata_settings.json', $f), '/'));
+                if (@copy($f, $backupFile)) @chmod($backupFile, 0600);
                 $preserveFiles[] = $f;
             }
         }

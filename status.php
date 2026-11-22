@@ -15,11 +15,8 @@ if ($aimMediaDir === $aimPluginDir) $aimDataDir = $aimPluginDir . '/config';
 $aimSettingsFile = $aimDataDir . '/settings.json';
 $aimLegacySettingsFile = $aimPluginDir . '/config/settings.json';
 if (!file_exists($aimSettingsFile) && file_exists($aimLegacySettingsFile)) $aimSettingsFile = $aimLegacySettingsFile;
-$aimHistoryFile = $aimDataDir . '/history.json';
-$aimLegacyHistoryFile = $aimPluginDir . '/config/history.json';
-if (!file_exists($aimHistoryFile) && file_exists($aimLegacyHistoryFile)) $aimHistoryFile = $aimLegacyHistoryFile;
-$aimSettings = [];
-if (file_exists($aimSettingsFile)) $aimSettings = json_decode(@file_get_contents($aimSettingsFile), true) ?: [];
+// Status data is fetched through the plugin API, which masks credentials
+// (§14.4); this page never reads settings.json directly.
 $_fppUiLevel = (int)($GLOBALS['settings']['uiLevel'] ?? $settings['uiLevel'] ?? 0);
 $uiLevel = $_fppUiLevel;
 $showLogsTab = $uiLevel >= 1;
