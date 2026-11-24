@@ -113,7 +113,14 @@
                 "where": "plugindata/fpp-AImode/settings.json"
             },
             {
-                "what": "conversation history",
+                "what": "chat conversations (messages, timestamps, provider and model)",
+                "about": "operator",
+                "keptDays": 30,
+                "canDelete": true,
+                "where": "plugindata/fpp-AImode/conversations/"
+            },
+            {
+                "what": "recent conversation history (mirror of the active chat)",
                 "about": "operator",
                 "keptDays": 30,
                 "canDelete": true,
@@ -132,10 +139,10 @@
         "systemChanges": [
             {
                 "kind": "core-settings",
-                "what": "sets FPP's restart flag when you use Flag FPPD Restart, Update or Reinstall in the Developer tab"
+                "what": "sets FPP's restart flag when you ask, and persists volume changes you request through the assistant (settings:Volume, settings:volume)"
             }
         ],
         "closedCode": false,
-        "other": "API keys stored in plugindata with 0600; keys never logged. The Developer tab (UI level 3+) exposes Update, Reinstall, Uninstall and Flag FPPD Restart actions that change this plugin or request an FPPD restart; anyone who can reach FPP's web UI can call these routes, which have no separate login."
+        "other": "API keys are stored in plugindata with 0600 and are never logged. Chat, Test Connection and model-list routes send your prompt, chat history and FPP context to the provider you selected, only when you use those features; Save, Execute, conversation and history routes change or delete your own data, and Flag FPPD Restart asks FPP to restart. These routes are reached exactly like FPP's own pages and have no separate login, so they check that a browser request came from the same FPP host. Updates, reinstalls and uninstalls are left to FPP's Plugin Manager."
     }
 }

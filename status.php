@@ -23,16 +23,16 @@ $showLogsTab = $uiLevel >= 1;
 $showDevTab = $uiLevel >= 3;
 ?>
 <style>
-.tab-bar { display: flex; flex-wrap: wrap; gap: 0; margin-bottom: 12px; border-bottom: 2px solid var(--bs-border-color, #dee2e6); }
-.tab-bar a { display: block; padding: 8px 18px; text-decoration: none; color: var(--bs-body-color, #495057); background: var(--bs-tertiary-bg, #f8f9fa); border: 1px solid var(--bs-border-color, #dee2e6); border-bottom: none; border-radius: 4px 4px 0 0; margin-bottom: -2px; margin-right: 3px; font-size: 14px; }
-.tab-bar a.active { background: var(--bs-body-bg, #fff); color: var(--bs-body-color, #212529); border-color: var(--bs-border-color, #dee2e6); border-bottom-color: var(--bs-body-bg, #fff); font-weight: 600; }
-.tab-bar a:hover:not(.active) { background: var(--bs-secondary-bg, #e9ecef); }
-.aim-welcome { background: linear-gradient(135deg, var(--bs-primary-bg-subtle,#e7f1ff) 0%, var(--bs-tertiary-bg,#f8f9fa) 100%); border:1px solid var(--bs-border-color,#dee2e6); border-radius:10px; padding:16px 18px; display:flex; gap:14px; align-items:center; margin-bottom:16px; }
+.tab-bar { display: flex; flex-wrap: wrap; gap: 0; margin-bottom: 12px; border-bottom: 2px solid var(--bs-border-color); }
+.tab-bar a { display: block; padding: 8px 18px; text-decoration: none; color: var(--bs-body-color); background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color); border-bottom: none; border-radius: 4px 4px 0 0; margin-bottom: -2px; margin-right: 3px; font-size: 14px; }
+.tab-bar a.active { background: var(--bs-body-bg); color: var(--bs-body-color); border-color: var(--bs-border-color); border-bottom-color: var(--bs-body-bg); font-weight: 600; }
+.tab-bar a:hover:not(.active) { background: var(--bs-secondary-bg); }
+.aim-welcome { background: linear-gradient(135deg, var(--bs-primary-bg-subtle) 0%, var(--bs-tertiary-bg) 100%); border:1px solid var(--bs-border-color); border-radius:10px; padding:16px 18px; display:flex; gap:14px; align-items:center; margin-bottom:16px; }
 .aim-welcome-icon { font-size:28px; }
 .aim-welcome h4 { margin:0 0 4px 0; font-size:16px; font-weight:700; }
 .aim-welcome p { margin:0; font-size:12.5px; color:var(--bs-secondary-color); line-height:1.5; }
 .aim-health { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-bottom:16px; }
-.aim-health-card { background:var(--bs-body-bg,#fff); border:1px solid var(--bs-border-color,#dee2e6); border-radius:10px; padding:14px; display:flex; gap:12px; align-items:center; }
+.aim-health-card { background:var(--bs-body-bg); border:1px solid var(--bs-border-color); border-radius:10px; padding:14px; display:flex; gap:12px; align-items:center; }
 .aim-health-card .aim-hc-icon { font-size:22px; width:42px; height:42px; display:flex; align-items:center; justify-content:center; border-radius:8px; flex-shrink:0; }
 .aim-health-card.ok .aim-hc-icon { background:var(--bs-success-bg-subtle); }
 .aim-health-card.warn .aim-hc-icon { background:var(--bs-warning-bg-subtle); }
@@ -54,7 +54,7 @@ fieldset legend { font-weight:700; font-size:14px; padding:0 8px; }
             <p>Check your AI provider, FPP connection, and available tools. Everything green? You're ready to chat.</p>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <a href="plugin.php?plugin=fpp-AImode&page=assistant.php" class="buttons" style="background:var(--bs-primary); color:#fff; border-color:var(--bs-primary); font-weight:600;">💬 Open Assistant</a>
+            <a href="plugin.php?plugin=fpp-AImode&page=assistant.php" class="buttons" style="background:var(--bs-primary); color:var(--bs-white); border-color:var(--bs-primary); font-weight:600;">💬 Open Assistant</a>
             <a href="plugin.php?plugin=fpp-AImode&page=config.php" class="buttons">⚙️ Configure</a>
         </div>
     </div>

@@ -12,10 +12,10 @@ $showLogsTab = $uiLevel >= 1;
 $showDevTab = $uiLevel >= 3;
 ?>
 <style>
-.tab-bar { display: flex; flex-wrap: wrap; gap: 0; margin-bottom: 12px; border-bottom: 2px solid var(--bs-border-color, #dee2e6); }
-.tab-bar a { display: block; padding: 8px 18px; text-decoration: none; color: var(--bs-body-color, #495057); background: var(--bs-tertiary-bg, #f8f9fa); border: 1px solid var(--bs-border-color, #dee2e6); border-bottom: none; border-radius: 4px 4px 0 0; margin-bottom: -2px; margin-right: 3px; font-size: 14px; }
-.tab-bar a.active { background: var(--bs-body-bg, #fff); color: var(--bs-body-color, #212529); border-color: var(--bs-border-color, #dee2e6); border-bottom-color: var(--bs-body-bg, #fff); font-weight: 600; }
-.tab-bar a:hover:not(.active) { background: var(--bs-secondary-bg, #e9ecef); }
+.tab-bar { display: flex; flex-wrap: wrap; gap: 0; margin-bottom: 12px; border-bottom: 2px solid var(--bs-border-color); }
+.tab-bar a { display: block; padding: 8px 18px; text-decoration: none; color: var(--bs-body-color); background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color); border-bottom: none; border-radius: 4px 4px 0 0; margin-bottom: -2px; margin-right: 3px; font-size: 14px; }
+.tab-bar a.active { background: var(--bs-body-bg); color: var(--bs-body-color); border-color: var(--bs-border-color); border-bottom-color: var(--bs-body-bg); font-weight: 600; }
+.tab-bar a:hover:not(.active) { background: var(--bs-secondary-bg); }
 </style>
 
 <?php include __DIR__ . '/tabs.inc'; ?>
@@ -42,7 +42,7 @@ $showDevTab = $uiLevel >= 3;
                 <li>Optionally set a custom <b>Base URL</b> (required for Azure, Ollama on another host, or proxies).</li>
                 <li>Click <b>Save Settings</b>, then <b>Test Connection</b> — expect <span class="text-success">✓ Connected</span>.</li>
                 <li>Go to <b>Assistant</b>, type a prompt and click <b>Send</b>.</li>
-                <li>Review any <b>tool calls</b> the AI proposes and click <b>Approve</b>. Check <b>Logs</b> for results.</li>
+                <li>The AI may propose <b>tool calls</b>. They run automatically while <b>Auto-approve</b> is on (the default); uncheck it in Config to approve each one. Check <b>Logs</b> for results.</li>
             </ol>
 
             <hr>
@@ -67,12 +67,13 @@ $showDevTab = $uiLevel >= 3;
 
             <h3>How Approval Works</h3>
             <p>
-                The AI never changes FPP directly on its first reply — it <b>proposes tool calls</b> (JSON) that you review.
-                Each card shows the tool name and arguments. Click <b>Approve &amp; Execute</b> to run it, or <b>Approve All</b> for multiple calls.
+                The AI <b>proposes tool calls</b> (JSON) in its reply. Each card shows the tool name and arguments.
+                With <b>Auto-approve on (the default)</b> those calls execute immediately after the reply — there is no review click.
+                Turn Auto-approve off in Config to see <b>Approve &amp; Execute</b> / <b>Approve All</b> buttons and review each call first.
             </p>
             <ul>
-                <li><b>Dry-run</b> (Config → Behavior) — when on, approvals are shown but nothing executes. Good for testing prompts.</li>
-                <li><b>Auto-approve</b> — when on, every tool call runs immediately after the reply with no click needed. <b>On by default</b>; uncheck on a trusted LAN only if you prefer manual approval.</li>
+                <li><b>Dry-run</b> (Config → Execution) — when on, proposals are shown but nothing executes. Good for testing prompts.</li>
+                <li><b>Auto-approve</b> — on by default for convenience. Uncheck it if you want to review and approve every tool call before it runs.</li>
                 <li>Every execution is logged to <code>/home/fpp/media/logs/plugin-fpp-AImode.log</code> with redacted keys.</li>
             </ul>
 

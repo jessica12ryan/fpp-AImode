@@ -45,35 +45,35 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
     .aim-provider-bar { flex-direction: column; align-items: stretch !important; }
 }
 .aim-chat { display:flex; flex-direction:column; gap:14px; }
-.aim-welcome { background: linear-gradient(135deg, var(--bs-primary-bg-subtle,#e7f1ff) 0%, var(--bs-tertiary-bg,#f8f9fa) 100%); border:1px solid var(--bs-border-color,#dee2e6); border-radius:10px; padding:14px 16px; display:flex; gap:12px; align-items:center; }
+.aim-welcome { background: linear-gradient(135deg, var(--bs-primary-bg-subtle) 0%, var(--bs-tertiary-bg) 100%); border:1px solid var(--bs-border-color); border-radius:10px; padding:14px 16px; display:flex; gap:12px; align-items:center; }
 .aim-welcome-icon { font-size:28px; line-height:1; }
 .aim-welcome h4 { margin:0 0 4px 0; font-size:16px; font-weight:700; }
 .aim-welcome p { margin:0; font-size:12px; color:var(--bs-secondary-color); line-height:1.4; }
-.aim-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; padding:10px 12px; background:var(--bs-tertiary-bg,#f8f9fa); border:1px solid var(--bs-border-color,#dee2e6); border-radius:8px; }
+.aim-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; padding:10px 12px; background:var(--bs-tertiary-bg); border:1px solid var(--bs-border-color); border-radius:8px; }
 .aim-header-badges .badge { font-size:11px; padding:5px 7px; }
-.aim-conv-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:10px 12px; border:1px solid var(--bs-border-color,#dee2e6); border-radius:8px; background:var(--bs-body-bg,#fff); box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+.aim-conv-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:10px 12px; border:1px solid var(--bs-border-color); border-radius:8px; background:var(--bs-body-bg); box-shadow: var(--bs-box-shadow); }
 .aim-conv-bar label { font-size:12px; font-weight:600; color:var(--bs-secondary-color); white-space:nowrap; }
-.aim-examples { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:8px 12px; background:var(--bs-body-bg,#fff); border:1px solid var(--bs-border-color,#dee2e6); border-radius:8px; }
-.aim-examples .aim-chip { font-size:12px; padding:6px 12px; border-radius:20px; border:1px solid var(--bs-border-color,#dee2e6); background:var(--bs-tertiary-bg,#f8f9fa); cursor:pointer; transition:.15s; }
-.aim-examples .aim-chip:hover { background:var(--bs-primary); color:#fff; border-color:var(--bs-primary); transform: translateY(-1px); }
-.aim-messages { border:1px solid var(--bs-border-color,#dee2e6); border-radius:10px; padding:14px; min-height:340px; max-height:560px; overflow-y:auto; background: var(--bs-body-bg,#fff); box-shadow: inset 0 1px 3px rgba(0,0,0,.03); }
+.aim-examples { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:8px 12px; background:var(--bs-body-bg); border:1px solid var(--bs-border-color); border-radius:8px; }
+.aim-examples .aim-chip { font-size:12px; padding:6px 12px; border-radius:20px; border:1px solid var(--bs-border-color); background:var(--bs-tertiary-bg); cursor:pointer; transition:.15s; }
+.aim-examples .aim-chip:hover { background:var(--bs-primary); color:var(--bs-white); border-color:var(--bs-primary); transform: translateY(-1px); }
+.aim-messages { border:1px solid var(--bs-border-color); border-radius:10px; padding:14px; min-height:340px; max-height:560px; overflow-y:auto; background: var(--bs-body-bg);  }
 .aim-msg { margin-bottom:14px; padding:10px 14px; border-radius:12px; max-width:88%; word-wrap:break-word; line-height:1.5; position:relative; }
-.aim-msg-user { background:var(--bs-primary); color:#fff; align-self:flex-end; margin-left:auto; border-bottom-right-radius:4px; box-shadow: 0 2px 4px rgba(0,0,0,.08); }
+.aim-msg-user { background:var(--bs-primary); color:var(--bs-white); align-self:flex-end; margin-left:auto; border-bottom-right-radius:4px; box-shadow: var(--bs-box-shadow); }
 .aim-msg-assistant { background:var(--bs-tertiary-bg); color:var(--bs-body-color); border:1px solid var(--bs-border-color); border-bottom-left-radius:4px; }
 .aim-msg-system { background:var(--bs-warning-bg-subtle); color:var(--bs-warning-text-emphasis); border:1px solid var(--bs-warning-border-subtle); font-size:12px; border-radius:8px; }
 .aim-msg-meta { font-size:11px; opacity:0.65; margin-top:6px; display:flex; gap:8px; align-items:center; }
-.aim-chat-input { display:flex; gap:10px; align-items:flex-end; background:var(--bs-tertiary-bg,#f8f9fa); padding:10px; border:1px solid var(--bs-border-color,#dee2e6); border-radius:10px; }
-.aim-chat-input textarea { flex:1; min-height:62px; resize:vertical; border-radius:8px; border:1px solid var(--bs-border-color,#dee2e6); padding:10px 12px; font-size:14px; }
-.aim-chat-input textarea:focus { border-color:var(--bs-primary); box-shadow: 0 0 0 3px rgba(var(--bs-primary-rgb),.15); outline:none; }
-.aim-tool-card { border:1px solid var(--bs-border-color,#dee2e6); border-radius:8px; padding:10px 12px; margin-top:10px; background:var(--bs-body-bg,#fff); box-shadow: 0 1px 3px rgba(0,0,0,.05); }
-.aim-tool-card pre { margin:6px 0; white-space:pre-wrap; word-break:break-all; font-size:11px; background:var(--bs-tertiary-bg,#f8f9fa); padding:8px; border-radius:6px; border:1px solid var(--bs-border-color,#eee); }
-.aim-provider-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:4px; padding:10px 12px; border:1px dashed var(--bs-primary-border-subtle,#a0c4ff); border-radius:8px; background: var(--bs-primary-bg-subtle,#f0f7ff); }
+.aim-chat-input { display:flex; gap:10px; align-items:flex-end; background:var(--bs-tertiary-bg); padding:10px; border:1px solid var(--bs-border-color); border-radius:10px; }
+.aim-chat-input textarea { flex:1; min-height:62px; resize:vertical; border-radius:8px; border:1px solid var(--bs-border-color); padding:10px 12px; font-size:14px; }
+.aim-chat-input textarea:focus { border-color:var(--bs-primary); box-shadow: var(--bs-box-shadow); outline:none; }
+.aim-tool-card { border:1px solid var(--bs-border-color); border-radius:8px; padding:10px 12px; margin-top:10px; background:var(--bs-body-bg); box-shadow: var(--bs-box-shadow); }
+.aim-tool-card pre { margin:6px 0; white-space:pre-wrap; word-break:break-all; font-size:11px; background:var(--bs-tertiary-bg); padding:8px; border-radius:6px; border:1px solid var(--bs-border-color); }
+.aim-provider-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:4px; padding:10px 12px; border:1px dashed var(--bs-primary-border-subtle); border-radius:8px; background: var(--bs-primary-bg-subtle); }
 .aim-provider-bar label { font-size:12px; font-weight:600; color:var(--bs-primary-text-emphasis); }
 .aim-thinking { display:none; align-items:center; gap:10px; font-size:12px; color:var(--bs-secondary-color); padding:10px 14px; border:1px dashed var(--bs-border-color); border-radius:8px; background:var(--bs-tertiary-bg); margin-top:6px; }
 .aim-thinking.show { display:flex; }
 .aim-thinking .spinner { width:16px; height:16px; border:2.5px solid var(--bs-secondary-color); border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite; flex-shrink:0; }
 @keyframes spin { to { transform:rotate(360deg);} }
-.aim-help { font-size:11px; color:var(--bs-secondary-color); background:var(--bs-tertiary-bg,#f8f9fa); padding:8px 12px; border-radius:8px; border:1px solid var(--bs-border-color,#eee); }
+.aim-help { font-size:11px; color:var(--bs-secondary-color); background:var(--bs-tertiary-bg); padding:8px 12px; border-radius:8px; border:1px solid var(--bs-border-color); }
 </style>
 
 <?php include __DIR__ . '/tabs.inc'; ?>
@@ -101,7 +101,7 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
             <div id="aimConvBar" class="aim-conv-bar">
                 <label for="aimConvSelect">💬 Conversation</label>
                 <select id="aimConvSelect" class="form-select" style="flex:1 1 180px; max-width:280px; font-size:13px; font-weight:500;" onchange="aimConv.switch(this.value)"></select>
-                <button type="button" class="buttons" onclick="aimConv.create()" title="Start a new chat" style="background:var(--bs-primary); color:#fff; border-color:var(--bs-primary); font-weight:600;">＋ New</button>
+                <button type="button" class="buttons" onclick="aimConv.create()" title="Start a new chat" style="background:var(--bs-primary); color:var(--bs-white); border-color:var(--bs-primary); font-weight:600;">＋ New</button>
                 <button type="button" class="buttons btn-sm" onclick="aimConv.rename()" title="Rename this conversation">✎</button>
                 <button type="button" class="buttons btn-sm" onclick="aimConv.delete()" title="Delete this conversation">🗑️</button>
                 <div style="display:flex; gap:6px; margin-left:auto; align-items:center;">
@@ -128,7 +128,7 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
             <div class="aim-chat-input">
                 <textarea id="aimPrompt" placeholder="💬 Describe what you want…  Try 'Create a playlist named Halloween with Spooky.fseq and schedule it Oct 31 6pm–11pm'" rows="2" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); aimChat.send();}"></textarea>
                 <div style="display:flex; flex-direction:column; gap:6px; min-width:96px;">
-                    <button type="button" class="buttons" id="aimSendBtn" onclick="aimChat.send();" style="padding:12px 20px; font-weight:700; background:var(--bs-primary); color:#fff; border-color:var(--bs-primary); border-radius:8px; font-size:14px;">Send ▶</button>
+                    <button type="button" class="buttons" id="aimSendBtn" onclick="aimChat.send();" style="padding:12px 20px; font-weight:700; background:var(--bs-primary); color:var(--bs-white); border-color:var(--bs-primary); border-radius:8px; font-size:14px;">Send ▶</button>
                     <span id="aimChatStatus" class="text-secondary" style="font-size:11px; text-align:center; min-height:14px;"></span>
                 </div>
             </div>
@@ -143,7 +143,7 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
                     <?php if (!empty($aimSettings['auto_approve'])) echo '<span class="badge bg-success" title="Tools run automatically">✓ Auto-approve</span>'; else echo '<span class="badge bg-secondary" title="You must approve each tool">Manual approve</span>'; ?>
                 </span>
                 <span id="aimConvProviderStatus" class="text-secondary" style="font-size:11px;"></span>
-                <label style="display:flex; gap:6px; align-items:center; font-size:12px; margin-left:auto; cursor:pointer; white-space:nowrap; background:var(--bs-tertiary-bg, transparent); padding:4px 8px; border-radius:6px; border:1px solid var(--bs-border-color);"><input type="checkbox" id="aimVerbose" style="margin:0;"> Verbose</label>
+                <label style="display:flex; gap:6px; align-items:center; font-size:12px; margin-left:auto; cursor:pointer; white-space:nowrap; background:var(--bs-tertiary-bg); padding:4px 8px; border-radius:6px; border:1px solid var(--bs-border-color);"><input type="checkbox" id="aimVerbose" style="margin:0;"> Verbose</label>
             </div>
             <div class="aim-help">
                 💡 <b>Tip:</b> <b>Enter</b> to send, <b>Shift+Enter</b> for newline. Each reply may propose FPP actions — click <b>✓ Approve</b> to run them. Dry-run is off by default; toggle in <a href="plugin.php?plugin=fpp-AImode&page=config.php">Config</a>.
@@ -190,7 +190,7 @@ var aimChat = {
     md: function(s){
         if(!s) return '';
         var h = aimChat.esc(s);
-        h = h.replace(/```([\s\S]*?)```/g, function(_,code){ return '<pre style="white-space:pre-wrap;background:var(--bs-tertiary-bg,#f8f9fa);padding:8px;border-radius:4px;overflow:auto;">'+code+'</pre>'; });
+        h = h.replace(/```([\s\S]*?)```/g, function(_,code){ return '<pre style="white-space:pre-wrap;background:var(--bs-tertiary-bg);padding:8px;border-radius:4px;overflow:auto;">'+code+'</pre>'; });
         h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
         h = h.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
         h = h.replace(/\n/g, '<br>');

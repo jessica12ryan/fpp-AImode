@@ -15,6 +15,9 @@ define('AIM_MAX_TOKENS_DEFAULT', 2048);
 // left blank for a provider that already has one, the browser sends this
 // sentinel and the server restores the stored key instead of overwriting it.
 define('AIM_KEEP_KEY_SENTINEL', '__AIM_KEEP_KEY__');
+// Conversation history and chat messages are kept for at most this many days.
+// This is the retention promised in pluginInfo.json's privacy.collects block.
+define('AIM_HISTORY_KEEP_DAYS', 30);
 
 function aimResolveKeepKey($key, $settings, $provider) {
     if (trim((string)$key) === AIM_KEEP_KEY_SENTINEL) {
@@ -23,17 +26,50 @@ function aimResolveKeepKey($key, $settings, $provider) {
     return trim((string)$key);
 }
 
+// FPP's /api answers every origin and has no CSRF token, so a page on another
+// site could otherwise drive this plugin's state-changing routes (§14.12).
+// Browsers always send Origin on POST/PUT/DELETE; refuse a mismatched one.
+// Requests with neither header are non-browser API clients, which are not a
+// CSRF vector.
+function aimSameOriginRequest() {
+    $host = strtolower((string)(parse_url('//' . ($_SERVER['HTTP_HOST'] ?? ''), PHP_URL_HOST) ?? ''));
+    if ($host === '') return true;
+    $origin = (string)($_SERVER['HTTP_ORIGIN'] ?? '');
+    if ($origin !== '') {
+        $oh = strtolower((string)(parse_url($origin, PHP_URL_HOST) ?? ''));
+        return $oh === $host;
+    }
+    $referer = (string)($_SERVER['HTTP_REFERER'] ?? '');
+    if ($referer !== '') {
+        $rh = strtolower((string)(parse_url($referer, PHP_URL_HOST) ?? ''));
+        return $rh === $host;
+    }
+    return true;
+}
+function aimDenyCrossOrigin() {
+    return json(['success' => false, 'error' => 'Cross-origin request refused — use the AI Mode pages in FPP.']);
+}
+
 // FPP's eight operator-owned privacy settings are off limits to plugins
-// entirely (§14.9), and core credentials must not be forwarded to an AI
+// entirely (§14.9), and core credentials must never be forwarded to an AI
 // provider without an explicit reads-core-credentials disclosure (§14.11).
+// Match by name pattern as well as exact key: FPP's password-typed settings
+// include compound names such as emailpass, gitHubPAT, osPassword,
+// passwordVerify and TetherPSK, all of which would otherwise leak through
+// the get_settings tool.
 function aimIsProtectedSettingKey($key) {
-    static $blocked = [
+    $k = strtolower((string)$key);
+    static $privacySettings = [
         'statspublish','statspublishurl','sharecrashdata','fetchvendorlogos',
         'sendvendorserial','sendvendorlogos','privacyconsent','legaljurisdiction',
-        'password','passwd','passphrase','passcode','pwd','psk','secret',
-        'token','credential','apikey','mqttpassword','emailgpass','remotetoken',
     ];
-    return in_array(strtolower((string)$key), $blocked, true);
+    if (in_array($k, $privacySettings, true)) return true;
+    // Crash-bundler style redaction (§14.4): these substrings always mean a secret.
+    if (preg_match('/(?:pass|pwd|psk|secret|token|credential|apikey|api_key)/', $k)) return true;
+    // 'pat', 'key' and 'auth' only when not followed by a lowercase letter
+    // (so keyframe, monkey, authentic... are not mistaken for credentials).
+    if (preg_match('/(?:pat|key|auth)(?![a-z])/', $k)) return true;
+    return false;
 }
 
 /* ── Logging — exactly one file: <logdir>/plugin-fpp-AImode.log ── */
@@ -59,7 +95,24 @@ function aimGetLogFile() {
 
 
 function aimLog($msg) {
-    // Redact anything that looks like an API key — never log secrets (§1.3)
+    // Redact the actual stored credentials as well as known key shapes —
+    // Mistral and Azure keys have no recognisable prefix (§1.3, §14.4).
+    static $redacting = false;
+    if (!$redacting) {
+        $redacting = true;
+        $s = @aimLoadSettings();
+        if (is_array($s)) {
+            $secrets = [];
+            foreach (($s['providers'] ?? []) as $c) {
+                if (!empty($c['api_key'])) $secrets[] = (string)$c['api_key'];
+            }
+            if (!empty($s['api_key'])) $secrets[] = (string)$s['api_key'];
+            foreach (array_unique($secrets) as $secret) {
+                if (strlen($secret) >= 4) $msg = str_replace($secret, '***REDACTED***', $msg);
+            }
+        }
+        $redacting = false;
+    }
     $msg = preg_replace('/(sk-[A-Za-z0-9_\-]{8,}|sk-ant-[A-Za-z0-9_\-]{8,}|sk-or-[A-Za-z0-9_\-]{8,}|xai-[A-Za-z0-9]{8,}|AIza[0-9A-Za-z_\-]{20,})/', '***REDACTED***', $msg);
     $msg = preg_replace('/("api_key"\s*:\s*")[^"]+(")/', '$1***$2', $msg);
     $logFile = aimGetLogFile();
@@ -434,7 +487,19 @@ function aimLoadHistory() {
     }
     $raw = @file_get_contents($file);
     $arr = json_decode($raw ?: '[]', true);
-    return is_array($arr) ? $arr : [];
+    if (!is_array($arr)) return [];
+    // Automatic purge: the privacy block promises 30 days, so drop older
+    // entries on read and persist the result (§14.5, §14.8).
+    $cutoff = time() - AIM_HISTORY_KEEP_DAYS * 86400;
+    $kept = [];
+    $changed = false;
+    foreach ($arr as $e) {
+        $ts = isset($e['ts']) ? strtotime((string)$e['ts']) : false;
+        if ($ts !== false && $ts < $cutoff) { $changed = true; continue; }
+        $kept[] = $e;
+    }
+    if ($changed) aimSaveHistory($kept);
+    return $kept;
 }
 
 function aimSaveHistory($history) {
@@ -460,6 +525,14 @@ function aimAppendHistory($role, $content, $meta = []) {
 function aimClearHistory() {
     @unlink(aimGetHistoryFile());
     @unlink(aimGetLegacyHistoryFile());
+    // A "clear history" control must really clear what the assistant shows:
+    // conversations are the primary store, history.json is only a mirror.
+    $dir = aimGetConversationsDir();
+    if (is_dir($dir)) {
+        foreach (glob($dir . '/*.json') as $f) @unlink($f);
+    }
+    @file_put_contents(aimGetConversationsIndexFile(), "[]\n", LOCK_EX);
+    @chmod(aimGetConversationsIndexFile(), 0600);
 }
 
 /* ── Conversations (multiple, background-aware) ── */
@@ -516,8 +589,37 @@ function aimEnsureConversationsMigrated() {
     }
     $migrating = false;
 }
+function aimPurgeOldConversations() {
+    static $purging = false;
+    if ($purging) return;
+    $purging = true;
+    $dir = aimGetConversationsDir();
+    $idxFile = aimGetConversationsIndexFile();
+    $cutoff = time() - AIM_HISTORY_KEEP_DAYS * 86400;
+    $raw = @file_get_contents($idxFile);
+    $list = json_decode($raw ?: '[]', true);
+    if (!is_array($list)) $list = [];
+    $kept = [];
+    $changed = false;
+    foreach ($list as $e) {
+        $id = $e['id'] ?? '';
+        $ts = isset($e['updated']) ? strtotime((string)$e['updated']) : false;
+        if ($id && $ts !== false && $ts < $cutoff) {
+            @unlink($dir . '/' . preg_replace('/[^a-zA-Z0-9_\-]/', '', $id) . '.json');
+            $changed = true;
+        } else {
+            $kept[] = $e;
+        }
+    }
+    if ($changed) {
+        @file_put_contents($idxFile, json_encode(array_values($kept), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n", LOCK_EX);
+        @chmod($idxFile, 0600);
+    }
+    $purging = false;
+}
 function aimListConversations() {
     aimEnsureConversationsMigrated();
+    aimPurgeOldConversations();
     $idxFile = aimGetConversationsIndexFile();
     $raw = @file_get_contents($idxFile);
     $list = json_decode($raw ?: '[]', true);
@@ -536,6 +638,7 @@ function aimListConversations() {
 }
 function aimGetConversation($id) {
     aimEnsureConversationsMigrated();
+    aimPurgeOldConversations();
     $id = preg_replace('/[^a-zA-Z0-9_\-]/', '', $id);
     if (!$id) return null;
     $file = aimGetConversationsDir() . '/' . $id . '.json';
@@ -1014,7 +1117,7 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
     if ($model === '') $model = $meta['defaultModel'];
     // Provider/model sanity check — give friendly error before HTTP 404
     if ($provider === 'google' && stripos($model, 'gemini') === false && stripos($model, 'gemma') === false && stripos($model, 'learnlm') === false) {
-        return ['success'=>false,'error'=>'Model "' . $model . '" not valid for Google Gemini. Use gemini-2.5-flash, gemini-2.5-pro, gemini-2.0-flash, etc. — current provider is google. List: https://ai.google.dev/gemini-api/docs/models/gemini'];
+        return ['success'=>false,'error'=>'Model "' . $model . '" not valid for Google Gemini. Use a gemini-* model — current provider is google. Use the live model picker in Config to see available models.'];
     }
     if ($provider === 'openai' && stripos($model, 'gemini') === 0) {
         return ['success'=>false,'error'=>'Model "' . $model . '" is a Gemini model, not valid for OpenAI provider. Switch provider to Google or choose a gpt-*/o1* model.'];
@@ -1140,7 +1243,6 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $tryBody);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-        if ($provider === 'ollama' && strpos($tryUrl, 'https://') !== 0) curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
         $r = curl_exec($ch);
         $c = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $e = curl_error($ch);
@@ -1201,19 +1303,19 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
                 preg_match('/use models\/([a-z0-9._\-]+)/i', $snippet, $sug);
                 $suggested = $sug[1] ?? null;
                 if ($suggested) {
-                    $hint = ' — Model "' . $model . '" no longer available. Google suggests "' . $suggested . '". Update Config → Model to that (or check live list: https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_KEY)';
+                    $hint = ' — Model "' . $model . '" no longer available. Google suggests "' . $suggested . '". Update Config → Model to that (or use the live model picker).';
                 } else {
-                    $hint = ' — Model "' . $model . '" not available (deprecated). Check live models: https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_KEY — try gemini-2.5-flash or gemini-2.5-pro';
+                    $hint = ' — Model "' . $model . '" not available (deprecated). Use the live model picker in Config — try gemini-2.5-flash or gemini-2.5-pro.';
                 }
             } else {
-                $hint = ' — Model "' . $model . '" not available (deprecated or wrong API version). Check live models: https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_KEY or docs https://ai.google.dev/gemini-api/docs/models/gemini — try gemini-2.5-flash or gemini-2.5-pro';
+                $hint = ' — Model "' . $model . '" not available (deprecated or wrong API version). Use the live model picker in Config — try gemini-2.5-flash or gemini-2.5-pro.';
             }
         } elseif ($code === 404 && stripos($snippet, 'model') !== false) {
             $hint = ' — Model "' . $model . '" not found for provider ' . $provider . '. Check Config → Model picker for valid models for this provider.';
         } elseif ($code === 401) {
             $hint = ' — check API key for ' . $provider;
         } elseif ($code === 429) {
-            $hint = ' — Quota exceeded (free tier limit, e.g. 20 req for gemini-3.6-flash). Retry in 20-30s, check https://ai.dev/rate-limit or https://ai.google.dev/gemini-api/docs/rate-limits, or switch to Ollama/local or a different provider/model.';
+            $hint = ' — Quota exceeded (free tier limit, e.g. 20 req for gemini-3.6-flash). Retry in 20-30s, check your provider\'s rate-limit docs, or switch to Ollama/local or a different provider/model.';
             if (preg_match('/retry in ([0-9.]+)s/i', $snippet, $rm)) $hint .= ' Suggested retry in ' . $rm[1] . 's.';
         }
         return ['success'=>false,'error'=>"HTTP $code: $snippet" . $hint];
@@ -1328,10 +1430,10 @@ function getEndpointsfppAImode() {
     $r[] = ['method'=>'POST', 'endpoint'=>'execute', 'callback'=>'aimExecuteEndpoint'];
     $r[] = ['method'=>'GET', 'endpoint'=>'logs', 'callback'=>'aimLogsEndpoint'];
     $r[] = ['method'=>'GET', 'endpoint'=>'icon', 'callback'=>'aimIconEndpoint'];
-    $r[] = ['method'=>'GET', 'endpoint'=>'check-updates', 'callback'=>'aimCheckUpdatesEndpoint'];
-    $r[] = ['method'=>'POST', 'endpoint'=>'update', 'callback'=>'aimUpdateEndpoint'];
-    $r[] = ['method'=>'POST', 'endpoint'=>'reinstall', 'callback'=>'aimReinstallEndpoint'];
-    $r[] = ['method'=>'POST', 'endpoint'=>'uninstall', 'callback'=>'aimUninstallEndpoint'];
+    // Update / reinstall / uninstall are deliberately NOT exposed here: FPP's
+    // Plugin Manager owns those operations, including the privacy-disclosure
+    // re-prompt, version pinning and dependency reference counting (§2.11,
+    // §14.16). Only the restart flag is offered as a plugin API route.
     $r[] = ['method'=>'POST', 'endpoint'=>'restart-fppd', 'callback'=>'aimRestartFPPDEndpoint'];
     return $r;
 }
@@ -1482,7 +1584,6 @@ function aimFetchProviderModels($provider, $apiKey, $baseUrl, $timeout = 12) {
     curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
     curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-    if ($provider === 'ollama' && strpos($url, 'https://') !== 0) curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     $resp = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $err = curl_error($ch);
@@ -1548,22 +1649,18 @@ function aimFetchProviderModels($provider, $apiKey, $baseUrl, $timeout = 12) {
     return ['success'=>true,'models'=>$models];
 }
 function aimModelsEndpoint() {
+    if (!aimSameOriginRequest()) return aimDenyCrossOrigin();
     $raw = file_get_contents('php://input');
     $body = json_decode($raw ?: '{}', true);
     if (!is_array($body)) $body = [];
     $body = array_merge($_POST, $body);
     $settings = aimLoadSettings();
     $provider = trim((string)($body['provider'] ?? $settings['defaultProvider'] ?? $settings['provider'] ?? ''));
-    // Try to get api_key/base_url from providers map if not explicitly passed
-    $apiKey = trim((string)($body['api_key'] ?? $body['apiKey'] ?? ''));
-    $baseUrl = trim((string)($body['base_url'] ?? $body['baseUrl'] ?? ''));
-    if ($apiKey === '' || $baseUrl === '') {
-        $cfg = aimGetProviderConfig($settings, $provider);
-        if ($apiKey === '') $apiKey = $cfg['api_key'] ?? '';
-        if ($baseUrl === '') $baseUrl = $cfg['base_url'] ?? '';
-    }
-    // A blank key field with a saved key sends the sentinel; restore it here.
-    $apiKey = aimResolveKeepKey($apiKey, $settings, $provider);
+    // Keys and destinations are never taken from a request — a cross-site
+    // caller must not be able to redirect the saved key to its own host.
+    $cfg = aimGetProviderConfig($settings, $provider);
+    $apiKey = $cfg['api_key'];
+    $baseUrl = $cfg['base_url'];
     if (!$provider) return json(['success'=>false,'error'=>'Provider required']);
     $res = aimFetchProviderModels($provider, $apiKey, $baseUrl);
     if (!$res['success']) {
@@ -1575,6 +1672,7 @@ function aimModelsEndpoint() {
 }
 
 function aimSaveEndpoint() {
+    if (!aimSameOriginRequest()) return aimDenyCrossOrigin();
     $body = $_POST;
     // Support JSON body (fetch with contentType json may land in php://input; FPP's json() helper populates $_POST via json decode in some versions, but be safe)
     $raw = file_get_contents('php://input');
@@ -1618,42 +1716,20 @@ function aimSaveEndpoint() {
 }
 
 function aimTestEndpoint() {
+    if (!aimSameOriginRequest()) return aimDenyCrossOrigin();
     $body = $_POST;
     $raw = file_get_contents('php://input');
     if (!empty($raw)) { $j = json_decode($raw, true); if (is_array($j)) $body = array_merge($body, $j); }
     $settings = aimLoadSettings();
-    // Allow override via body — support both single-provider and multi-provider payloads
+    // The provider may be chosen by the request, but its key and endpoint come
+    // only from saved settings. A model typed in the Config page may be tested
+    // before saving; it is just a string in a URL path, not a secret or host.
     $testProvider = trim((string)($body['provider'] ?? $settings['defaultProvider'] ?? $settings['provider'] ?? 'openai'));
-    if (isset($body['providers']) && is_array($body['providers']) && isset($body['providers'][$testProvider])) {
-        // Body contains full providers map — use it
-        $settings['providers'] = $body['providers'];
-        $settings['defaultProvider'] = $testProvider;
-        $settings['provider'] = $testProvider;
-        aimMigrateSingleToProviders($settings);
-    } else {
-        // Single-provider override (legacy or direct test)
-        foreach (['provider','api_key','model','base_url','temperature','max_tokens'] as $k) {
-            if (isset($body[$k]) && $body[$k] !== '') {
-                $settings[$k] = ($k === 'api_key')
-                    ? aimResolveKeepKey($body[$k], $settings, $testProvider)
-                    : $body[$k];
-            }
-        }
-        // If testing a specific provider, ensure its entry in providers map is updated
-        if (isset($body['provider']) && isset($body['api_key'])) {
-            $settings['providers'][$testProvider]['api_key'] = aimResolveKeepKey($body['api_key'], $settings, $testProvider);
-        }
-        if (isset($body['model'])) $settings['providers'][$testProvider]['model'] = $body['model'];
-        if (isset($body['base_url'])) $settings['providers'][$testProvider]['base_url'] = $body['base_url'];
-        $settings['defaultProvider'] = $testProvider;
-        $settings['provider'] = $testProvider;
-        aimMigrateSingleToProviders($settings);
-    }
-    // Resolve effective config for test provider
     $effective = aimGetProviderConfig($settings, $testProvider);
     $settings['provider'] = $effective['provider'];
+    $settings['defaultProvider'] = $effective['provider'];
     $settings['api_key'] = $effective['api_key'];
-    $settings['model'] = $effective['model'];
+    $settings['model'] = trim((string)($body['model'] ?? '')) !== '' ? trim((string)$body['model']) : $effective['model'];
     $settings['base_url'] = $effective['base_url'];
     // Build minimal test message
     $messages = [['role'=>'user','content'=>'Reply with exactly: OK']];
@@ -1674,6 +1750,7 @@ function aimTestEndpoint() {
 }
 
 function aimChatEndpoint() {
+    if (!aimSameOriginRequest()) return aimDenyCrossOrigin();
     ignore_user_abort(true);
     set_time_limit(120);
     $raw = file_get_contents('php://input');
@@ -1713,11 +1790,9 @@ function aimChatEndpoint() {
     if ($reqProvider && aimProviderExists($reqProvider)) {
         $defProvider = $reqProvider;
         $effective = aimGetProviderConfig($settings, $defProvider);
-        if (isset($body['api_key']) && $body['api_key'] !== '') {
-            $effective['api_key'] = aimResolveKeepKey($body['api_key'], $settings, $defProvider);
-        }
+        // A model typed in the UI may be used for this chat; keys and endpoints
+        // are always read from saved settings (never from a request).
         if (isset($body['model']) && $body['model'] !== '') $effective['model'] = trim((string)$body['model']);
-        if (isset($body['base_url']) && $body['base_url'] !== '') $effective['base_url'] = trim((string)$body['base_url']);
         // Persist per-conversation provider/model if changed via request
         $conv['provider'] = $effective['provider'];
         $conv['model'] = $effective['model'];
@@ -1900,6 +1975,7 @@ function aimHistoryEndpoint() {
 }
 
 function aimHistoryClearEndpoint() {
+    if (!aimSameOriginRequest()) return aimDenyCrossOrigin();
     aimClearHistory();
     aimLog('History cleared');
     return json(['success'=>true,'message'=>'History cleared']);
@@ -1910,6 +1986,7 @@ function aimConversationsListEndpoint() {
     return json(['success'=>true,'conversations'=>$list]);
 }
 function aimConversationsCreateEndpoint() {
+    if (!aimSameOriginRequest()) return aimDenyCrossOrigin();
     $raw = file_get_contents('php://input');
     $body = json_decode($raw ?: '{}', true);
     if (!is_array($body)) $body = [];
@@ -1943,6 +2020,7 @@ function aimConversationGetEndpoint() {
     return json(['success'=>true,'conversation'=>$conv]);
 }
 function aimConversationDeleteEndpoint() {
+    if (!aimSameOriginRequest()) return aimDenyCrossOrigin();
     $id = aimGetRouteId('id');
     if (!$id) {
         $raw = file_get_contents('php://input');
@@ -1954,6 +2032,7 @@ function aimConversationDeleteEndpoint() {
     return json(['success'=>true,'message'=>'Conversation deleted']);
 }
 function aimConversationUpdateEndpoint() {
+    if (!aimSameOriginRequest()) return aimDenyCrossOrigin();
     $id = aimGetRouteId('id');
     $raw = file_get_contents('php://input');
     $body = json_decode($raw ?: '{}', true);
@@ -1973,6 +2052,7 @@ function aimConversationUpdateEndpoint() {
 }
 
 function aimExecuteEndpoint() {
+    if (!aimSameOriginRequest()) return aimDenyCrossOrigin();
     $raw = file_get_contents('php://input');
     $body = json_decode($raw ?: '{}', true);
     if (!is_array($body)) $body = [];
@@ -2020,118 +2100,8 @@ function aimLogsEndpoint() {
     return json(['success'=>true,'entries'=> array_reverse($entries)]);
 }
 
-function aimCheckUpdatesEndpoint() {
-    $pluginDir = AIM_PLUGIN_DIR;
-    $localSha=''; $remoteSha='';
-    if (is_dir($pluginDir . '/.git')) {
-        $localSha = trim(@shell_exec('git -C ' . escapeshellarg($pluginDir) . ' rev-parse HEAD 2>/dev/null') ?? '');
-        $remoteRef = trim(@shell_exec('git -C ' . escapeshellarg($pluginDir) . ' ls-remote origin main 2>/dev/null') ?? '');
-        if ($remoteRef !== '') { $parts = preg_split('/\s+/', $remoteRef); $remoteSha = $parts[0] ?? ''; }
-    }
-    $updateAvailable = !empty($localSha) && !empty($remoteSha) && $localSha !== $remoteSha;
-    return json(['updateAvailable'=>$updateAvailable,'localSha'=> $localSha ? substr($localSha,0,7) : 'unknown','remoteSha'=> $remoteSha ? substr($remoteSha,0,7) : 'unknown']);
-}
-
-function aimDoGitUpdate($preserveConfig = true) {
-    $pluginDir = AIM_PLUGIN_DIR;
-    $backupDir = sys_get_temp_dir() . '/fpp-aimode-backup';
-    // These backups contain API keys: private directory (0700), and copied
-    // files are explicitly 0600 (§5, §14.4). Tighten an older loose dir too.
-    @mkdir($backupDir, 0700, true);
-    @chmod($backupDir, 0700);
-    // Preserve plugindata (new) and legacy config for migration (§14.11 credentials in plugindata)
-    $plugindataSettings = aimGetSettingsFile();
-    $plugindataHistory = aimGetHistoryFile();
-    $legacySettings = aimGetLegacySettingsFile();
-    $legacyHistory = aimGetLegacyHistoryFile();
-    $preserveFiles = [];
-    if ($preserveConfig) {
-        foreach ([$plugindataSettings, $plugindataHistory, $legacySettings, $legacyHistory] as $f) {
-            if (file_exists($f)) {
-                $backupFile = $backupDir . '/' . str_replace('/', '_', ltrim(str_replace($plugindataSettings, 'plugindata_settings.json', $f), '/'));
-                if (@copy($f, $backupFile)) @chmod($backupFile, 0600);
-                $preserveFiles[] = $f;
-            }
-        }
-    }
-    if (is_dir($pluginDir . '/.git')) {
-        exec('git -C ' . escapeshellarg($pluginDir) . ' fetch origin 2>&1');
-        exec('git -C ' . escapeshellarg($pluginDir) . ' checkout -- . 2>&1');
-        exec('git -C ' . escapeshellarg($pluginDir) . ' clean -fd 2>&1');
-        exec('git -C ' . escapeshellarg($pluginDir) . ' reset --hard origin/main 2>&1');
-    }
-    if ($preserveConfig) {
-        // Restore plugindata files (preferred) — legacy files are kept only if plugindata didn't exist
-        foreach ([$plugindataSettings, $plugindataHistory] as $f) {
-            $bak = $backupDir . '/plugindata_' . basename($f);
-            // fallback key naming above used underscore; check both
-            $bakAlt = $backupDir . '/' . str_replace('/', '_', $f);
-            $found = file_exists($bak) ? $bak : (file_exists($bakAlt) ? $bakAlt : null);
-            if ($found) {
-                @mkdir(dirname($f), 0775, true);
-                @copy($found, $f);
-                @chmod($f, 0600);
-            }
-        }
-        // Also restore legacy if plugindata not yet migrated
-        foreach ([$legacySettings, $legacyHistory] as $f) {
-            $bak = $backupDir . '/' . str_replace('/', '_', $f);
-            if (file_exists($bak) && !file_exists(aimGetSettingsFile()) && basename($f)==='settings.json') {
-                @mkdir(dirname($f), 0775, true);
-                @copy($bak, $f);
-            } elseif (file_exists($bak) && !file_exists(aimGetHistoryFile()) && basename($f)==='history.json') {
-                @mkdir(dirname($f), 0775, true);
-                @copy($bak, $f);
-            }
-        }
-        exec('rm -rf ' . escapeshellarg($backupDir));
-    }
-    // Ensure plugindata perms
-    $plugDataDir = aimGetDataDir();
-    if (is_dir($plugDataDir)) {
-        @chmod($plugDataDir, 0775);
-        foreach (glob($plugDataDir . '/*') as $f) @chmod($f, 0600);
-    }
-    $infoFile = $pluginDir . '/pluginInfo.json';
-    if (file_exists($infoFile)) {
-        $info = json_decode(file_get_contents($infoFile), true);
-        if ($info && isset($info['versions'])) {
-            $sha = trim(@shell_exec('git -C ' . escapeshellarg($pluginDir) . ' rev-parse HEAD 2>/dev/null') ?? '');
-            if ($sha !== '') {
-                foreach ($info['versions'] as &$v) $v['sha'] = $sha;
-                file_put_contents($infoFile, json_encode($info, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
-            }
-        }
-    }
-    $opts = ['http'=>['method'=>'PUT','header'=>'Content-Type: application/json','content'=>'1']];
-    @file_get_contents('http://localhost/api/settings/restartFlag', false, stream_context_create($opts));
-}
-
-function aimUpdateEndpoint() {
-    aimDoGitUpdate(true);
-    aimLog('Plugin updated via developer tab');
-    return json(['success'=>true,'message'=>'Plugin updated']);
-}
-function aimReinstallEndpoint() {
-    aimDoGitUpdate(true);
-    aimLog('Plugin reinstalled via developer tab');
-    return json(['success'=>true,'message'=>'Plugin reinstalled']);
-}
-function aimUninstallEndpoint() {
-    $pluginDir = AIM_PLUGIN_DIR;
-    $it = new RecursiveDirectoryIterator($pluginDir, RecursiveDirectoryIterator::SKIP_DOTS);
-    $files = new RecursiveIteratorIterator($it, RecursiveIteratorIterator::CHILD_FIRST);
-    foreach ($files as $file) {
-        if ($file->isDir()) @rmdir($file->getRealPath());
-        else @unlink($file->getRealPath());
-    }
-    @rmdir($pluginDir);
-    $opts = ['http'=>['method'=>'PUT','header'=>'Content-Type: application/json','content'=>'1']];
-    @file_get_contents('http://localhost/api/settings/restartFlag', false, stream_context_create($opts));
-    aimLog('Plugin uninstalled via developer tab');
-    return json(['success'=>true,'message'=>'Plugin removed; FPPD restart flagged']);
-}
 function aimRestartFPPDEndpoint() {
+    if (!aimSameOriginRequest()) return aimDenyCrossOrigin();
     $opts = ['http'=>['method'=>'PUT','header'=>'Content-Type: application/json','content'=>'1']];
     $res = @file_get_contents('http://localhost/api/settings/restartFlag', false, stream_context_create($opts));
     if ($res === false) return json(['success'=>false,'error'=>'Could not set restart flag']);

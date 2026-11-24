@@ -68,6 +68,8 @@ sudo chown -R fpp:fpp fpp-AImode
 | **Ollama** | *(none)* | `— not installed` (set to `http://<ollama-host>:11434` if you have it) | `llama3.1` (default) • `llama3.3`, `qwen2.5`, `qwen3`, `gemma3`, `phi4`, `deepseek-r1` |
 | **Azure OpenAI** | Azure key | `https://{endpoint}.openai.azure.com` | your deployment name = model field (`gpt-4o`, `gpt-5`, `o3`) |
 
+> Model IDs change often. The lists below are fallbacks — use **Refresh models** in Config to fetch the live list from your provider; whatever you save is used as-is.
+
 > **Security:** Keys are stored in `/home/fpp/media/plugindata/fpp-AImode/settings.json` with `0600` (plugindata, not config, so crash bundles and backups never carry them in clear). Keys are never logged. Use FPP’s UI password if FPP is exposed.
 
 ## Usage
@@ -77,7 +79,7 @@ sudo chown -R fpp:fpp fpp-AImode
 1. **Content Setup → AI Mode → Assistant**
 2. Type a prompt: *“What playlists do I have?”* or *“Make a new schedule for Halloween”*
 3. The AI replies and may propose **tool calls** (e.g. `create_playlist`, `update_setting`).
-4. Review the JSON diff and click **Approve** (or **Approve All**). With dry-run on, no changes are made.
+4. With **Auto-approve** on (the default), tool calls execute immediately after the reply. Uncheck it in Config to review the JSON diff and click **Approve** (or **Approve All**) instead. With dry-run on, no changes are made.
 5. Results appear in the chat and in **Logs**.
 
 ### What Can It Configure?
@@ -101,14 +103,17 @@ The system prompt tells the model to *always* read before writing and to explain
 | POST | `api/plugin/fpp-AImode/save` | Save settings JSON |
 | POST | `api/plugin/fpp-AImode/test` | Test provider connectivity |
 | POST | `api/plugin/fpp-AImode/chat` | Chat with AI (prompt → reply + tool calls) |
+| GET/POST | `api/plugin/fpp-AImode/models` | List live models from the saved provider config |
 | GET | `api/plugin/fpp-AImode/history` | Get conversation history |
-| POST | `api/plugin/fpp-AImode/history/clear` | Clear history |
+| POST | `api/plugin/fpp-AImode/history/clear` | Clear history and conversations |
 | POST | `api/plugin/fpp-AImode/execute` | Execute a single tool call |
 | GET | `api/plugin/fpp-AImode/tools` | List available tools |
+| GET/POST/DELETE/PUT | `api/plugin/fpp-AImode/conversations` (`:id`) | Manage saved chats |
 | GET | `api/plugin/fpp-AImode/logs` | Last 100 log lines |
-| GET | `api/plugin/fpp-AImode/check-updates` | Git SHA check |
-| POST | `api/plugin/fpp-AImode/update` / `reinstall` / `uninstall` | Maintenance |
+| POST | `api/plugin/fpp-AImode/restart-fppd` | Flag an FPPD restart |
 | GET | `api/plugin/fpp-AImode/icon` | Plugin icon |
+
+Updates, reinstalls and uninstalls are handled by FPP's Plugin Manager, not by plugin-owned routes.
 
 ## Troubleshooting
 
@@ -120,7 +125,7 @@ The system prompt tells the model to *always* read before writing and to explain
 
 ## Development
 
-Enable **Developer** UI level (FPP Settings → UI → Developer) to see the **Developer** tab for update/reinstall/uninstall and full diagnostics.
+Enable **Developer** UI level (FPP Settings → UI → Developer) to see the **Developer** tab for raw diagnostics and the standard FPPD restart flag. Use **Content Setup → Plugin Manager** for updates, reinstalls and uninstalls.
 
 ## License
 

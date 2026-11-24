@@ -84,21 +84,21 @@ $showDevTab = $uiLevel >= 3;
     input[type="text"], input[type="password"], select, textarea { width: 100% !important; box-sizing: border-box; }
     input.buttons { width: 100%; margin-bottom: 6px; box-sizing: border-box; }
 }
-.aim-welcome { background: linear-gradient(135deg, var(--bs-primary-bg-subtle,#e7f1ff) 0%, var(--bs-tertiary-bg,#f8f9fa) 100%); border:1px solid var(--bs-border-color,#dee2e6); border-radius:10px; padding:16px 18px; display:flex; gap:14px; align-items:center; margin-bottom:16px; }
+.aim-welcome { background: linear-gradient(135deg, var(--bs-primary-bg-subtle) 0%, var(--bs-tertiary-bg) 100%); border:1px solid var(--bs-border-color); border-radius:10px; padding:16px 18px; display:flex; gap:14px; align-items:center; margin-bottom:16px; }
 .aim-welcome-icon { font-size:28px; }
 .aim-welcome h4 { margin:0 0 4px 0; font-size:16px; font-weight:700; }
 .aim-welcome p { margin:0; font-size:12.5px; color:var(--bs-secondary-color); line-height:1.5; }
 .aim-steps { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0; }
-.aim-step { flex:1 1 160px; background:var(--bs-body-bg,#fff); border:1px solid var(--bs-border-color,#dee2e6); border-radius:8px; padding:10px 12px; text-align:center; }
+.aim-step { flex:1 1 160px; background:var(--bs-body-bg); border:1px solid var(--bs-border-color); border-radius:8px; padding:10px 12px; text-align:center; }
 .aim-step b { display:block; font-size:13px; color:var(--bs-primary); }
 .aim-step span { font-size:11px; color:var(--bs-secondary-color); }
 .provider-card { border:1px solid var(--bs-border-color); border-radius:8px; padding:12px 14px; margin-bottom:10px; background:var(--bs-body-bg); transition:.15s; }
-.provider-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.06); transform: translateY(-1px); }
+.provider-card:hover { box-shadow: var(--bs-box-shadow); transform: translateY(-1px); }
 .provider-card.configured { border-left:4px solid var(--bs-success); }
-.provider-card.default { background:var(--bs-primary-bg-subtle,#f0f7ff); border-color:var(--bs-primary-border-subtle); }
+.provider-card.default { background:var(--bs-primary-bg-subtle); border-color:var(--bs-primary-border-subtle); }
 .aim-overview-cards { display:grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap:10px; margin-top:12px; }
-.aim-overview-card { background:var(--bs-body-bg,#fff); border:1px solid var(--bs-border-color,#dee2e6); border-radius:8px; padding:10px 12px; display:flex; flex-direction:column; gap:6px; }
-.aim-overview-card.is-default { border-color:var(--bs-primary); background:var(--bs-primary-bg-subtle,#f0f7ff); }
+.aim-overview-card { background:var(--bs-body-bg); border:1px solid var(--bs-border-color); border-radius:8px; padding:10px 12px; display:flex; flex-direction:column; gap:6px; }
+.aim-overview-card.is-default { border-color:var(--bs-primary); background:var(--bs-primary-bg-subtle); }
 .aim-overview-card .aim-card-top { display:flex; justify-content:space-between; align-items:center; }
 .aim-overview-card .aim-card-title { font-weight:700; font-size:13px; }
 .aim-overview-card .aim-card-model { font-size:11px; color:var(--bs-secondary-color); font-family:monospace; }
@@ -130,7 +130,7 @@ fieldset legend { font-weight:700; font-size:14px; padding:0 8px; }
             <div class="alert alert-info" style="font-size:12.5px; border-radius:8px;">
                 💡 New conversations automatically use the <b>Default Provider</b>. You can override it per-chat in the Assistant's bottom bar. No need to re-enter keys — just switch.
             </div>
-            <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; background:var(--bs-tertiary-bg,#f8f9fa); padding:12px; border-radius:8px; border:1px solid var(--bs-border-color,#dee2e6);">
+            <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; background:var(--bs-tertiary-bg); padding:12px; border-radius:8px; border:1px solid var(--bs-border-color);">
                 <label for="aim_default_provider" style="font-weight:600; font-size:13px; white-space:nowrap;">Default Provider:</label>
                 <select id="aim_default_provider" class="form-select" style="flex:1 1 220px; max-width:320px; font-weight:500;">
                     <?php foreach ($aimProviders as $k=>$v): ?>
@@ -208,7 +208,7 @@ fieldset legend { font-weight:700; font-size:14px; padding:0 8px; }
                     <td></td>
                     <td style="padding:10px 4px;">
                         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-                            <button type="button" class="buttons" onclick="aimConfig.saveProvider();" style="background:var(--bs-primary); color:#fff; border-color:var(--bs-primary); font-weight:700; padding:8px 18px; border-radius:8px;">💾 Save This Provider</button>
+                            <button type="button" class="buttons" onclick="aimConfig.saveProvider();" style="background:var(--bs-primary); color:var(--bs-white); border-color:var(--bs-primary); font-weight:700; padding:8px 18px; border-radius:8px;">💾 Save This Provider</button>
                             <button type="button" class="buttons" onclick="aimConfig.testProvider();" style="font-weight:600; padding:8px 14px; border-radius:8px;">🧪 Test Connection</button>
                             <span id="aim_save_result" style="font-weight:600; font-size:13px;"></span>
                         </div>
@@ -228,7 +228,7 @@ fieldset legend { font-weight:700; font-size:14px; padding:0 8px; }
                 Fine-tune how the AI responds and what it can do. Changes apply to all conversations.
             </div>
             <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:14px;">
-                <div style="background:var(--bs-tertiary-bg,#f8f9fa); border:1px solid var(--bs-border-color,#dee2e6); border-radius:8px; padding:14px;">
+                <div style="background:var(--bs-tertiary-bg); border:1px solid var(--bs-border-color); border-radius:8px; padding:14px;">
                     <h6 style="font-size:13px; font-weight:700; margin:0 0 10px 0;">🧠 Creativity</h6>
                     <div style="margin-bottom:12px;">
                         <label style="font-size:12px; font-weight:600;">Temperature: <span id="aim_temp_val" class="badge bg-secondary"><?php echo htmlspecialchars($aimSettings['temperature']); ?></span></label>
@@ -243,13 +243,13 @@ fieldset legend { font-weight:700; font-size:14px; padding:0 8px; }
                         </div>
                     </div>
                 </div>
-                <div style="background:var(--bs-tertiary-bg,#f8f9fa); border:1px solid var(--bs-border-color,#dee2e6); border-radius:8px; padding:14px;">
+                <div style="background:var(--bs-tertiary-bg); border:1px solid var(--bs-border-color); border-radius:8px; padding:14px;">
                     <h6 style="font-size:13px; font-weight:700; margin:0 0 10px 0;">⚡ Execution</h6>
                     <label style="display:flex; gap:8px; align-items:center; font-size:13px; margin-bottom:8px; cursor:pointer;"><input type="checkbox" id="aim_dryrun" class="form-check-input" <?php echo !empty($aimSettings['dry_run'])?'checked':''; ?>> <span><b>Dry-run</b> — propose only, never execute</span></label>
                     <label style="display:flex; gap:8px; align-items:center; font-size:13px; margin-bottom:8px; cursor:pointer;"><input type="checkbox" id="aim_auto" class="form-check-input" <?php echo !empty($aimSettings['auto_approve'])?'checked':''; ?>> <span><b>Auto-approve</b> — run tools without manual approval</span></label>
-                    <div class="text-secondary" style="font-size:11px; margin-top:8px; padding:6px 8px; background:var(--bs-tertiary-bg, transparent); border-radius:6px; border:1px solid var(--bs-border-color);">💡 Auto-approve is on by default for a smooth experience. Uncheck for a careful review step.</div>
+                    <div class="text-secondary" style="font-size:11px; margin-top:8px; padding:6px 8px; background:var(--bs-tertiary-bg); border-radius:6px; border:1px solid var(--bs-border-color);">💡 Auto-approve is on by default for a smooth experience. Uncheck for a careful review step.</div>
                 </div>
-                <div style="background:var(--bs-tertiary-bg,#f8f9fa); border:1px solid var(--bs-border-color,#dee2e6); border-radius:8px; padding:14px;">
+                <div style="background:var(--bs-tertiary-bg); border:1px solid var(--bs-border-color); border-radius:8px; padding:14px;">
                     <h6 style="font-size:13px; font-weight:700; margin:0 0 10px 0;">📦 Context & Memory</h6>
                     <label style="display:flex; gap:8px; align-items:center; font-size:13px; margin-bottom:8px; cursor:pointer;"><input type="checkbox" id="aim_ctx" class="form-check-input" <?php echo !empty($aimSettings['include_fpp_context'])?'checked':''; ?>> <span><b>Include FPP context</b> — send live status/playlists with each prompt</span></label>
                     <label style="display:flex; gap:8px; align-items:center; font-size:13px; cursor:pointer;"><input type="checkbox" id="aim_hist" class="form-check-input" <?php echo !empty($aimSettings['history_enabled'])?'checked':''; ?>> <span><b>Keep history</b> — remember last 40 turns</span></label>
@@ -261,7 +261,7 @@ fieldset legend { font-weight:700; font-size:14px; padding:0 8px; }
                 <div class="text-secondary" style="font-size:11px; margin-top:4px;">Only change if you want to override the default FPP expert behavior.</div>
             </div>
             <div style="margin-top:14px; display:flex; gap:8px; align-items:center;">
-                <button type="button" class="buttons" onclick="aimConfig.saveGlobal();" style="background:var(--bs-primary); color:#fff; border-color:var(--bs-primary); font-weight:600; padding:8px 18px;">💾 Save Global Settings</button>
+                <button type="button" class="buttons" onclick="aimConfig.saveGlobal();" style="background:var(--bs-primary); color:var(--bs-white); border-color:var(--bs-primary); font-weight:600; padding:8px 18px;">💾 Save Global Settings</button>
                 <span id="aim_global_result" style="font-size:13px; font-weight:600;"></span>
             </div>
         </div>

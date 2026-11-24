@@ -18,5 +18,5 @@ Please open a GitHub issue or email the maintainer. Do not disclose API keys or 
 - Tool calls that modify FPP run with **auto-approve on by default** (each tool executes immediately after the AI reply). Uncheck Auto-Approve in Config to require manual approval per call. Dry-run shows the diff without executing.
 - Ollama/local providers keep data on your LAN; cloud providers send data off-device — choose accordingly.
 - The plugin only calls local FPP APIs at `http://localhost/api/*` via the proxied Apache path (never the raw `fppd` port `32322`); it does not open inbound ports.
-- Keep FPP and the plugin updated; check the Developer tab for updates.
+- Keep FPP and the plugin updated via **Content Setup → Plugin Manager**, which respects the pinned version and re-shows the privacy disclosure when it changes.
 

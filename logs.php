@@ -20,14 +20,14 @@ $showLogsTab = $uiLevel >= 1;
 $showDevTab = $uiLevel >= 3;
 ?>
 <style>
-.tab-bar { display: flex; flex-wrap: wrap; gap: 0; margin-bottom: 12px; border-bottom: 2px solid var(--bs-border-color, #dee2e6); }
-.tab-bar a { display: block; padding: 8px 18px; text-decoration: none; color: var(--bs-body-color, #495057); background: var(--bs-tertiary-bg, #f8f9fa); border: 1px solid var(--bs-border-color, #dee2e6); border-bottom: none; border-radius: 4px 4px 0 0; margin-bottom: -2px; margin-right: 3px; font-size: 14px; }
-.tab-bar a.active { background: var(--bs-body-bg, #fff); color: var(--bs-body-color, #212529); border-color: var(--bs-border-color, #dee2e6); border-bottom-color: var(--bs-body-bg, #fff); font-weight: 600; }
-.tab-bar a:hover:not(.active) { background: var(--bs-secondary-bg, #e9ecef); }
+.tab-bar { display: flex; flex-wrap: wrap; gap: 0; margin-bottom: 12px; border-bottom: 2px solid var(--bs-border-color); }
+.tab-bar a { display: block; padding: 8px 18px; text-decoration: none; color: var(--bs-body-color); background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color); border-bottom: none; border-radius: 4px 4px 0 0; margin-bottom: -2px; margin-right: 3px; font-size: 14px; }
+.tab-bar a.active { background: var(--bs-body-bg); color: var(--bs-body-color); border-color: var(--bs-border-color); border-bottom-color: var(--bs-body-bg); font-weight: 600; }
+.tab-bar a:hover:not(.active) { background: var(--bs-secondary-bg); }
 .log-table { width: 100%; border-collapse: collapse; font-family: 'Courier New', monospace; font-size: 12px; }
-.log-table th { text-align: left; padding: 6px 8px; border-bottom: 2px solid var(--bs-border-color, #dee2e6); white-space: nowrap; }
-.log-table td { padding: 4px 8px; border-bottom: 1px solid var(--bs-border-color, #dee2e6); vertical-align: top; }
-.log-table tr:hover { background: var(--bs-tertiary-bg, #f8f9fa); }
+.log-table th { text-align: left; padding: 6px 8px; border-bottom: 2px solid var(--bs-border-color); white-space: nowrap; }
+.log-table td { padding: 4px 8px; border-bottom: 1px solid var(--bs-border-color); vertical-align: top; }
+.log-table tr:hover { background: var(--bs-tertiary-bg); }
 .log-info { color: var(--bs-body-color); }
 .log-success { color: var(--bs-success); }
 .log-error { color: var(--bs-danger); }
@@ -46,7 +46,7 @@ $showDevTab = $uiLevel >= 3;
                 <input type="button" class="buttons" value="↻ Refresh" onclick="aimLogs.refresh();">
                 <span class="text-secondary" style="font-size:12px; margin-left:8px;">Keys are redacted to ***. Check FPPD logs for deeper errors.</span>
             </p>
-            <div id="log_container" style="max-height: 600px; overflow-y: auto; border: 1px solid var(--bs-border-color, #dee2e6); border-radius: 4px;">
+            <div id="log_container" style="max-height: 600px; overflow-y: auto; border: 1px solid var(--bs-border-color); border-radius: 4px;">
                 <table class="log-table">
                     <thead>
                         <tr>
@@ -57,7 +57,7 @@ $showDevTab = $uiLevel >= 3;
                         </tr>
                     </thead>
                     <tbody id="log_body">
-                        <tr><td colspan="4" style="text-align:center;padding:20px;color:var(--bs-secondary-color, #6c757d);">Loading logs…</td></tr>
+                        <tr><td colspan="4" style="text-align:center;padding:20px;color:var(--bs-secondary-color);">Loading logs…</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -68,7 +68,7 @@ $showDevTab = $uiLevel >= 3;
 <script>
 var aimLogs = {
     refresh: function() {
-        $('#log_body').html('<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--bs-secondary-color, #6c757d);">Loading logs…</td></tr>');
+        $('#log_body').html('<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--bs-secondary-color);">Loading logs…</td></tr>');
         $.ajax({
             url: 'api/plugin/fpp-AImode/logs',
             type: 'GET',
@@ -76,7 +76,7 @@ var aimLogs = {
             success: function(data) {
                 if (data.success && data.entries) {
                     if (data.entries.length === 0) {
-                        $('#log_body').html('<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--bs-secondary-color, #6c757d);">No log entries found.</td></tr>');
+                        $('#log_body').html('<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--bs-secondary-color);">No log entries found.</td></tr>');
                     } else {
                         var html = '';
                         for (var i = 0; i < data.entries.length; i++) {
