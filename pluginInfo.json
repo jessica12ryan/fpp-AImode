@@ -2,7 +2,7 @@
     "repoName": "fpp-AImode",
     "name": "AI Mode Plugin for FPP",
     "author": "jessica12ryan",
-    "description": "Configure and control Falcon Player (FPP) using natural language via major AI platforms. Link OpenAI, Anthropic, Google Gemini, Mistral, Grok, OpenRouter, Ollama (local, not installed by default) and more with API tokens to create playlists, schedules, channel outputs and settings from typed prompts. Includes conversational assistant with tool-calling execution with approval and full FPP API coverage.",
+    "description": "Configure and control Falcon Player (FPP) using natural language. Link OpenAI, Anthropic, Google Gemini, Mistral, Grok, OpenRouter, Azure, Ollama (local, not installed by default), OpenCode Console (opencode.ai, send prompts, chat history and FPP context to it for inference) or an OpenCode server you run yourself (same data goes to your server, which may forward it to other providers). Create playlists, schedules, channel outputs and settings from typed prompts with an assistant that shows tool calls for approval.",
     "homeURL": "https://github.com/jessica12ryan/fpp-AImode",
     "srcURL": "https://github.com/jessica12ryan/fpp-AImode.git",
     "bugURL": "https://github.com/jessica12ryan/fpp-AImode/issues",
@@ -102,6 +102,18 @@
                 "what": "prompt text, history and FPP context (playlists, schedules, settings)",
                 "why": "to interpret prompts and generate configuration tool calls",
                 "alwaysOn": false
+            },
+            {
+                "to": "opencode.ai",
+                "what": "prompt text, history and FPP context (playlists, schedules, settings)",
+                "why": "to run inference through OpenCode Console",
+                "alwaysOn": false
+            },
+            {
+                "to": "your OpenCode server",
+                "what": "prompt text, history and FPP context (playlists, schedules, settings)",
+                "why": "to run inference on a server you operate",
+                "alwaysOn": false
             }
         ],
         "collects": [
@@ -127,6 +139,13 @@
                 "where": "plugindata/fpp-AImode/history.json"
             },
             {
+                "what": "cached AI model lists (model IDs and API families)",
+                "about": "operator",
+                "keptDays": null,
+                "canDelete": true,
+                "where": "plugindata/fpp-AImode/opencode-models.json and opencode-server-models.json"
+            },
+            {
                 "what": "logs",
                 "about": "operator",
                 "keptDays": null,
@@ -143,6 +162,6 @@
             }
         ],
         "closedCode": false,
-        "other": "API keys are stored in plugindata with 0600 and are never logged. Chat, Test Connection and model-list routes send your prompt, chat history and FPP context to the provider you selected, only when you use those features; Save, Execute, conversation and history routes change or delete your own data, and Flag FPPD Restart asks FPP to restart. These routes are reached exactly like FPP's own pages and have no separate login, so they check that a browser request came from the same FPP host. Updates, reinstalls and uninstalls are left to FPP's Plugin Manager."
+        "other": "API keys are stored in plugindata with 0600 and are never logged. Chat, Test Connection and model-list routes send your prompt, chat history and FPP context to the provider you selected, only when you use those features; Save, Execute, conversation and history routes change or delete your own data, and Flag FPPD Restart asks FPP to restart. These routes are reached exactly like FPP's own pages and have no separate login, so they check that a browser request came from the same FPP host. The OpenCode server option may itself forward your prompts to whichever model provider that server is configured with. Updates, reinstalls and uninstalls are left to FPP's Plugin Manager."
     }
 }

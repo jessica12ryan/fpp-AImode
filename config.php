@@ -40,6 +40,8 @@ $aimProviders = [
     'openrouter' => ['label'=>'OpenRouter','defaultBase'=>'https://openrouter.ai/api/v1','models'=>['openai/gpt-4o','openai/gpt-4o-mini','openai/gpt-5','openai/gpt-5-mini','anthropic/claude-3.5-sonnet','anthropic/claude-opus-4','google/gemini-2.5-flash','google/gemini-3.6-flash','mistralai/mistral-large','x-ai/grok-3']],
     'ollama' => ['label'=>'Ollama (Local — not installed)','defaultBase'=>'','models'=>['llama3.1','llama3.3','qwen2.5','qwen3','mistral','gemma2','gemma3','phi3','phi4','codellama','deepseek-r1']],
     'azure' => ['label'=>'Azure OpenAI','defaultBase'=>'https://{your-endpoint}.openai.azure.com','models'=>['gpt-4o','gpt-4o-mini','gpt-35-turbo','gpt-5','gpt-5-mini','o3','o4-mini']],
+    'opencode' => ['label'=>'OpenCode (Console)','defaultBase'=>'https://opencode.ai/inference','models'=>['glm-5.3','glm-5.3-flash','deepseek-v4-pro','deepseek-v4.1-flash','claude-haiku-4-5','claude-sonnet-4-6','claude-opus-4-8','gpt-5','gpt-5-nano','gemini-3.6-flash','gemini-3.8-flash']],
+    'opencode-server' => ['label'=>'OpenCode Server (experimental)','defaultBase'=>'http://localhost:4096','models'=>[]],
 ];
 // Load settings and ensure providers map exists (migrate legacy)
 $aimSettings = $aimDefaults;
@@ -319,13 +321,13 @@ var aimConfig = {
         var def = aimConfig._defaultProvider;
         Object.keys(aimProviders).forEach(function(k){
             var p = aimConfig._providers[k] || {api_key:'',model:'',base_url:''};
-            var isOllama = k==='ollama';
+            var isOllama = (k==='ollama' || k==='opencode-server'); // providers with no required key
             // Ollama requires explicit host config and local install — not enabled by default
             var configured = (p.key_set || (p.api_key && p.api_key.length>0)) || (isOllama && p.base_url && p.base_url.length>0);
             var isDefault = k===def;
             var row = $('<tr>').addClass(isDefault?'table-info':'');
             row.append($('<td>').html('<b>'+aimProviders[k].label+'</b> ('+k+')' + (isDefault?' <span class="badge bg-primary">default</span>':'')));
-            var statusHtml = configured ? '<span class="text-success">✓</span> ' + (isOllama ? 'host set' : 'key set') : (isOllama ? '<span class="text-secondary" title="Requires local Ollama install">— not installed</span>' : '<span class="text-secondary">—</span>');
+            var statusHtml = configured ? '<span class="text-success">✓</span> ' + (isOllama ? 'host set' : 'key set') : (k==='ollama' ? '<span class="text-secondary" title="Requires local Ollama install">— not installed</span>' : '<span class="text-secondary">—</span>');
             row.append($('<td>').html(statusHtml));
             row.append($('<td>').text(p.model || aimProviders[k].models[0] || ''));
             row.append($('<td>').text(isDefault?'★':'' ));
@@ -334,12 +336,13 @@ var aimConfig = {
             var card = $('<div>').addClass('aim-overview-card' + (isDefault?' is-default':'' )).css('cursor','pointer').attr('title','Click to configure '+k).on('click', function(){ $('#aim_provider').val(k).trigger('change'); $('html,body').animate({scrollTop:$('#aim_provider').closest('fieldset').offset().top - 20}, 300); });
             var top = $('<div>').addClass('aim-card-top');
             top.append($('<span>').addClass('aim-card-title').html(aimProviders[k].label + (isDefault?' <span class="badge bg-primary" style="font-size:10px;">DEFAULT</span>':'')));
-            var badge = configured ? '<span class="badge bg-success">✓ Ready</span>' : (isOllama ? '<span class="badge bg-secondary" title="Requires local Ollama install">Not installed</span>' : '<span class="badge bg-secondary">— Not set</span>');
+            var badge = configured ? '<span class="badge bg-success">✓ Ready</span>' : (k==='ollama' ? '<span class="badge bg-secondary" title="Requires local Ollama install">Not installed</span>' : '<span class="badge bg-secondary">— Not set</span>');
             top.append($('<span>').html(badge));
             card.append(top);
             card.append($('<div>').addClass('aim-card-model').text((p.model || aimProviders[k].models[0] || '—') + ' · '+k));
             if(p.base_url) card.append($('<div>').css({fontSize:'10px', color:'var(--bs-secondary-color)', fontFamily:'monospace', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}).text(p.base_url));
-            else if(isOllama) card.append($('<div>').css({fontSize:'10px', color:'var(--bs-warning-text-emphasis)', fontStyle:'italic'}).text('Requires local install — set host to enable'));
+            else if(k==='ollama') card.append($('<div>').css({fontSize:'10px', color:'var(--bs-warning-text-emphasis)', fontStyle:'italic'}).text('Requires local install — set host to enable'));
+            else if(k==='opencode-server') card.append($('<div>').css({fontSize:'10px', color:'var(--bs-warning-text-emphasis)', fontStyle:'italic'}).text('Experimental — set your OpenCode server URL'));
             cards.append(card);
         });
     },
@@ -358,8 +361,9 @@ var aimConfig = {
         $('#aim_model').val(p.model || meta.models[0] || '');
         $('#aim_base_url').val(p.base_url || '');
         aimConfig.populateModels();
-        var isOllama2 = prov==='ollama';
-        if(isOllama2) $('#aim_key_status').html(p.base_url ? '<span class="text-success">✓ host set</span>' : '<span class="text-warning">— not installed</span>');
+        var isOllama2 = (prov==='ollama' || prov==='opencode-server');
+        if(prov==='ollama') $('#aim_key_status').html(p.base_url ? '<span class="text-success">✓ host set</span>' : '<span class="text-warning">— not installed</span>');
+        else if(prov==='opencode-server') $('#aim_key_status').html(p.base_url ? '<span class="text-success">✓ server set</span>' : '<span class="text-secondary">— using default localhost:4096</span>');
         else $('#aim_key_status').html(p.key_set ? ('<span class="text-success">✓ key set</span> <span class="text-secondary">'+escHtml(p.key_hint||'')+'</span>') : '—');
         $('#aim_api_key').attr('placeholder', p.key_set ? 'Key saved — leave blank to keep, or paste a new key' : 'Paste API key here');
         setTimeout(function(){ aimConfig.fetchModels(false); }, 400);
@@ -383,25 +387,27 @@ var aimConfig = {
         if (list.indexOf(cur)!==-1) sel.val(cur);
         else if (list.length && !cur) { sel.val(list[0]); $('#aim_model').val(list[0]); }
         else if (cur) sel.val(cur);
-        var isOllama = prov==='ollama';
+        var isOllama = (prov==='ollama' || prov==='opencode-server');
         $('#aim_default_base').text(meta.defaultBase || (isOllama ? '— not set (set host to enable)' : ''));
-        if(isOllama && !$('#aim_base_url').val()){
+        if(prov==='ollama' && !$('#aim_base_url').val()){
             $('#aim_default_base').html('<span class="text-warning">— not set — Ollama not installed (enter host to enable)</span>');
         }
         if (fetched) {
             $('#aim_models_status').html('<span class="text-success">✓ '+fetched.length+' live</span>');
             setTimeout(function(){ $('#aim_models_status').text(''); }, 4000);
-        } else if(isOllama && !$('#aim_base_url').val()){
+        } else if(prov==='ollama' && !$('#aim_base_url').val()){
             $('#aim_models_status').html('<span class="text-secondary">Preset '+list.length+' — Ollama not installed</span>');
-        } else if(!fetched && list.length && prov!=='ollama' && !$('#aim_api_key').val()){
+        } else if(!fetched && list.length && prov!=='ollama' && prov!=='opencode-server' && !$('#aim_api_key').val()){
             $('#aim_models_status').html('<span class="text-secondary">Preset '+list.length+' — enter key + ↻ for live</span>');
         } else if(!fetched && list.length){
             $('#aim_models_status').html('<span class="text-secondary">Preset '+list.length+' — fetching live…</span>');
         }
-        var hint=''; if(prov==='openai') hint='sk-…'; else if(prov==='anthropic') hint='sk-ant-…'; else if(prov==='google') hint='AIza…'; else if(prov==='grok') hint='xai-…'; else if(prov==='openrouter') hint='sk-or-…'; else if(isOllama) hint='no key — requires host'; else if(prov==='azure') hint='Azure API key';
+        var hint=''; if(prov==='openai') hint='sk-…'; else if(prov==='anthropic') hint='sk-ant-…'; else if(prov==='google') hint='AIza…'; else if(prov==='grok') hint='xai-…'; else if(prov==='openrouter') hint='sk-or-…'; else if(prov==='opencode') hint='oc_sk_…'; else if(prov==='ollama') hint='no key — requires host'; else if(prov==='opencode-server') hint='no key — optional bearer token'; else if(prov==='azure') hint='Azure API key';
         $('#aim_key_hint').text(hint ? 'Expected: '+hint : '');
-        if(isOllama) $('#aim_api_key').attr('placeholder','No key needed — set Ollama host below if installed'); else $('#aim_api_key').attr('placeholder','Paste your API key to fetch live models');
-        if(isOllama) {
+        if(prov==='ollama') $('#aim_api_key').attr('placeholder','No key needed — set Ollama host below if installed');
+        else if(prov==='opencode-server') $('#aim_api_key').attr('placeholder','Optional bearer token for your OpenCode server');
+        else $('#aim_api_key').attr('placeholder','Paste your API key to fetch live models');
+        if(prov==='ollama') {
             $('#aim_base_url').attr('placeholder','http://<ollama-host>:11434 — leave empty if not using Ollama');
             if(!$('#aim_base_url').val()) $('#aim_base_url').css('border-color','var(--bs-warning)');
             else $('#aim_base_url').css('border-color','');
@@ -414,9 +420,9 @@ var aimConfig = {
         var prov = $('#aim_provider').val();
         var key = aimConfig.keyForRequest(prov);
         var base = $('#aim_base_url').val();
-        var isOllama = prov==='ollama';
-        // Ollama requires host to be set — not installed by default
-        if(isOllama && !base){
+        var isOllama = (prov==='ollama' || prov==='opencode-server');
+        // Ollama requires an explicit host; OpenCode Server falls back to its default base URL.
+        if(prov==='ollama' && !base){
             if(manual) $.jGrowl('Ollama host not set — Ollama not installed. Enter host (e.g. http://192.168.1.50:11434) to fetch live models.',{themeState:'warning'});
             $('#aim_models_status').html('<span class="text-warning">Ollama not installed — set host to fetch live</span>');
             aimConfig.populateModels();
@@ -470,7 +476,7 @@ var aimConfig = {
         };
         if(!data.model){ $.jGrowl('Model required',{themeState:'error'}); return; }
         if(prov!=='ollama' && !typedKey && !hadKey){
-            if(!confirm('No API key for '+prov+'. Save anyway?')) return;
+            if(prov!=='opencode-server' && !confirm('No API key for '+prov+'. Save anyway?')) return;
         }
         // Update local map without ever keeping a plaintext key here
         aimConfig._providers[prov] = $.extend({}, aimConfig._providers[prov] || {}, {

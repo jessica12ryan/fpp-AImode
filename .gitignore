@@ -3,3 +3,5 @@
 /config/settings.json
 /config/history.json
 /tmp_*.js
+# CLI/dev fallback data dir (real installs use <mediadir>/plugindata/fpp-AImode)
+/plugindata/

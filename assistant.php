@@ -30,12 +30,14 @@ $aimProviders = [
     'openrouter' => ['label'=>'OpenRouter','defaultBase'=>'https://openrouter.ai/api/v1','models'=>['openai/gpt-4o','openai/gpt-4o-mini','openai/gpt-5','openai/gpt-5-mini','anthropic/claude-3.5-sonnet','anthropic/claude-opus-4','google/gemini-2.5-flash','google/gemini-3.6-flash','mistralai/mistral-large','x-ai/grok-3']],
     'ollama' => ['label'=>'Ollama (Local — not installed)','defaultBase'=>'','models'=>['llama3.1','llama3.3','qwen2.5','qwen3','mistral','gemma2','gemma3','phi3','phi4','codellama','deepseek-r1']],
     'azure' => ['label'=>'Azure OpenAI','defaultBase'=>'https://{your-endpoint}.openai.azure.com','models'=>['gpt-4o','gpt-4o-mini','gpt-35-turbo','gpt-5','gpt-5-mini','o3','o4-mini']],
+    'opencode' => ['label'=>'OpenCode (Console)','defaultBase'=>'https://opencode.ai/inference','models'=>['glm-5.3','glm-5.3-flash','deepseek-v4-pro','deepseek-v4.1-flash','claude-haiku-4-5','claude-sonnet-4-6','claude-opus-4-8','gpt-5','gpt-5-nano','gemini-3.6-flash','gemini-3.8-flash']],
+    'opencode-server' => ['label'=>'OpenCode Server (experimental)','defaultBase'=>'http://localhost:4096','models'=>[]],
 ];
 $_fppUiLevel = (int)($GLOBALS['settings']['uiLevel'] ?? $settings['uiLevel'] ?? 0);
 $uiLevel = $_fppUiLevel;
 $showLogsTab = $uiLevel >= 1;
 $showDevTab = $uiLevel >= 3;
-$hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama';
+$hasKey = !empty($aimSettings['api_key']) || in_array($aimSettings['provider'], ['ollama','opencode-server'], true);
 ?>
 <style>
 @media only screen and (max-width: 480px) {
@@ -82,7 +84,7 @@ $hasKey = !empty($aimSettings['api_key']) || $aimSettings['provider']==='ollama'
     <?php if (!$hasKey): ?>
     <div class="alert alert-warning" role="alert" style="margin-bottom:12px;">
         <b>No API key configured</b> for <code><?php echo htmlspecialchars($aimSettings['provider']); ?></code>. Go to <a href="plugin.php?plugin=fpp-AImode&page=config.php">Config</a> to add your token before chatting.
-        <?php if ($aimSettings['provider']==='ollama'): ?> Ollama normally needs no key — ensure the Base URL is correct.<?php endif; ?>
+        <?php if ($aimSettings['provider']==='ollama'): ?> Ollama normally needs no key — ensure the Base URL is correct.<?php elseif ($aimSettings['provider']==='opencode-server'): ?> An OpenCode server needs no key — ensure its Base URL is correct (a bearer token is optional).<?php endif; ?>
     </div>
     <?php endif; ?>
 
@@ -719,7 +721,7 @@ var aimConv = {
             var list = (typeof aimProviders !== 'undefined' && aimProviders) ? aimProviders : (window.aimProviders || {});
             var keys = Object.keys(list);
             if(keys.length===0) keys = provs ? Object.keys(provs) : [];
-            if(keys.length===0) keys = ['openai','anthropic','google','mistral','grok','openrouter','ollama','azure'];
+            if(keys.length===0) keys = ['openai','anthropic','google','mistral','grok','openrouter','ollama','azure','opencode','opencode-server'];
             keys.forEach(function(k){
                 var label = (list[k] && list[k].label) ? list[k].label : k;
                 sel.append($('<option>',{value:k,text:label+' ('+k+')'}));
@@ -755,7 +757,7 @@ var aimConv = {
         if(!prov) prov = $('#aimConvProvider').val();
         if(!prov) return;
         var sel = $('#aimConvModel');
-        var isOllama = prov==='ollama';
+        var isOllama = (prov==='ollama' || prov==='opencode-server'); // no required key
         // Immediate preset population so dropdown is never empty (shows instantly even if live fetch stalls)
         var presetImmediate = (typeof aimProviders !== 'undefined' && aimProviders && aimProviders[prov] && aimProviders[prov].models) ? aimProviders[prov].models : ((window.aimProviders && window.aimProviders[prov] && window.aimProviders[prov].models) ? window.aimProviders[prov].models : []);
         sel.empty();
@@ -764,7 +766,7 @@ var aimConv = {
             var curImm = aimConv._currentModel || '';
             if(curImm && presetImmediate.indexOf(curImm)===-1) sel.append($('<option>',{value:curImm,text:curImm+' (custom)'}));
             if(curImm) sel.val(curImm);
-            if(isOllama && !(aimConv._providerCache && aimConv._providerCache[prov] && aimConv._providerCache[prov].base_url)){
+            if(prov==='ollama' && !(aimConv._providerCache && aimConv._providerCache[prov] && aimConv._providerCache[prov].base_url)){
                 $('#aimConvProviderStatus').html('<span class="text-secondary">Preset '+presetImmediate.length+' — Ollama not installed</span>');
             } else {
                 $('#aimConvProviderStatus').html('<span class="text-secondary">Preset '+presetImmediate.length+' — fetching live…</span>');
@@ -774,8 +776,8 @@ var aimConv = {
         }
         var provs = aimConv._providerCache || {};
         var cfg = provs[prov] || {};
-        // Ollama requires host — don't try localhost if not configured
-        if(isOllama && !cfg.base_url){
+        // Ollama requires an explicit host; OpenCode Server falls back to localhost:4096.
+        if(prov==='ollama' && !cfg.base_url){
             if(manual) $.jGrowl('Ollama host not set — Ollama not installed. Set host in Config to enable.',{themeState:'warning'});
             return;
         }

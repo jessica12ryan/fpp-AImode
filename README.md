@@ -10,7 +10,7 @@ FPP has dozens of settings, playlists, schedules, and channel outputs. **AI Mode
 
 … and the plugin translates that into the correct FPP API calls, shows you each action, and executes only after you approve.
 
-- **8 providers** — OpenAI, Anthropic, Google (Gemini), Mistral, Grok (xAI), OpenRouter, Ollama (local), Azure OpenAI — switch with one dropdown
+- **10 providers** — OpenAI, Anthropic, Google (Gemini), Mistral, Grok (xAI), OpenRouter, Ollama (local), Azure OpenAI, OpenCode Console, OpenCode Server — switch with one dropdown
 - **Token/API-key per provider** with custom base URL & model picker
 - **Conversational assistant** — chat history, streaming-style replies, retry
 - **Tool calling** — AI proposes structured actions (create playlist, add schedule, update settings, manage outputs, etc.); you review & approve
@@ -67,6 +67,12 @@ sudo chown -R fpp:fpp fpp-AImode
 | **OpenRouter** | `sk-or-…` | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` (default) • `openai/gpt-5`, `google/gemini-3.6-flash`, `anthropic/claude-opus-4`, `x-ai/grok-3` |
 | **Ollama** | *(none)* | `— not installed` (set to `http://<ollama-host>:11434` if you have it) | `llama3.1` (default) • `llama3.3`, `qwen2.5`, `qwen3`, `gemma3`, `phi4`, `deepseek-r1` |
 | **Azure OpenAI** | Azure key | `https://{endpoint}.openai.azure.com` | your deployment name = model field (`gpt-4o`, `gpt-5`, `o3`) |
+| **OpenCode Console** | `oc_sk_…` | `https://opencode.ai/inference` | live list from `/inference/v1/models`; default `glm-5.3` |
+| **OpenCode Server** *(experimental)* | *(optional bearer token)* | `http://localhost:4096` (set your server's URL) | live list from your server's `/api/model` |
+
+> **OpenCode Console:** free-tier models return HTTP 403 to external clients — use a paid model or an OpenCode Go subscription. Models are routed automatically by the `recommended_api` field in OpenCode's model list (Chat Completions, Anthropic Messages, Responses, or Gemini generateContent).
+
+> **OpenCode Server:** connect to `opencode serve` on your LAN or elsewhere. The stateless `/api/experimental/generate/text` endpoint is used with a JSON tool-call adapter, so tool calls are experimental. Your server may forward prompts to its own configured providers.
 
 > Model IDs change often. The lists below are fallbacks — use **Refresh models** in Config to fetch the live list from your provider; whatever you save is used as-is.
 

@@ -34,7 +34,7 @@ $showDevTab = $uiLevel >= 3;
 
                 <h4>Features</h4>
                 <ul>
-                    <li>8 providers: OpenAI, Anthropic (Claude), Google Gemini, Mistral, Grok (xAI), OpenRouter, Ollama (local — not installed by default), Azure OpenAI</li>
+                    <li>10 providers: OpenAI, Anthropic (Claude), Google Gemini, Mistral, Grok (xAI), OpenRouter, Ollama (local — not installed by default), Azure OpenAI, OpenCode Console and OpenCode Server</li>
                     <li>Switch providers with one dropdown — API token / base URL / model per provider</li>
                     <li>Custom system prompt &amp; tunable temperature / max tokens</li>
                     <li>Conversational assistant with history, tool-call approval, dry-run &amp; auto-approve, verbose toggle (hide/show tool JSON)</li>

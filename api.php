@@ -113,7 +113,7 @@ function aimLog($msg) {
         }
         $redacting = false;
     }
-    $msg = preg_replace('/(sk-[A-Za-z0-9_\-]{8,}|sk-ant-[A-Za-z0-9_\-]{8,}|sk-or-[A-Za-z0-9_\-]{8,}|xai-[A-Za-z0-9]{8,}|AIza[0-9A-Za-z_\-]{20,})/', '***REDACTED***', $msg);
+    $msg = preg_replace('/(sk-[A-Za-z0-9_\-]{8,}|sk-ant-[A-Za-z0-9_\-]{8,}|sk-or-[A-Za-z0-9_\-]{8,}|oc_sk_[A-Za-z0-9_\-]{8,}|xai-[A-Za-z0-9]{8,}|AIza[0-9A-Za-z_\-]{20,})/', '***REDACTED***', $msg);
     $msg = preg_replace('/("api_key"\s*:\s*")[^"]+(")/', '$1***$2', $msg);
     $logFile = aimGetLogFile();
     if ($logFile === null || $logFile === '') return;
@@ -188,7 +188,70 @@ function aimGetProviders() {
             'auth' => 'api-key',
             'needsKey' => true,
         ],
+        'opencode' => [
+            'label' => 'OpenCode (Console)',
+            'defaultBase' => 'https://opencode.ai/inference',
+            'defaultModel' => 'glm-5.3',
+            'models' => ['glm-5.3','glm-5.3-flash','deepseek-v4-pro','deepseek-v4.1-flash','claude-haiku-4-5','claude-sonnet-4-6','claude-opus-4-8','gpt-5','gpt-5-nano','gemini-3.6-flash','gemini-3.8-flash'],
+            'auth' => 'bearer',
+            'needsKey' => true,
+        ],
+        'opencode-server' => [
+            'label' => 'OpenCode Server (experimental)',
+            'defaultBase' => 'http://localhost:4096',
+            'defaultModel' => '',
+            'models' => [],
+            'auth' => 'bearer-optional',
+            'needsKey' => false,
+        ],
     ];
+}
+
+/* ── OpenCode model metadata (Console + self-hosted server) ── */
+
+define('AIM_OPENCODE_CACHE_TTL', 43200); // 12 hours
+
+function aimModelCacheFile($provider) {
+    return aimGetDataDir() . '/' . ($provider === 'opencode' ? 'opencode-models.json' : 'opencode-server-models.json');
+}
+function aimModelCacheLoad($provider) {
+    $file = aimModelCacheFile($provider);
+    if (!file_exists($file)) return null;
+    $raw = @file_get_contents($file);
+    $c = json_decode($raw ?: '', true);
+    return is_array($c) ? $c : null;
+}
+function aimModelCacheSave($provider, $meta) {
+    $file = aimModelCacheFile($provider);
+    $dir = dirname($file);
+    if (!is_dir($dir)) @mkdir($dir, 0775, true);
+    $meta['fetched'] = time();
+    @file_put_contents($file, json_encode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n", LOCK_EX);
+    @chmod($file, 0600);
+}
+function aimModelCacheFresh($provider) {
+    $c = aimModelCacheLoad($provider);
+    return is_array($c) && isset($c['fetched']) && (time() - (int)$c['fetched'] < AIM_OPENCODE_CACHE_TTL) && !empty($c['models']);
+}
+function aimOpencodeModelFamily($settings, $model) {
+    if (!aimModelCacheFresh('opencode')) {
+        $base = aimEffectiveBaseUrl($settings, 'opencode');
+        aimFetchOpencodeModels($base, aimGetProviderConfig($settings, 'opencode')['api_key'] ?? '');
+    }
+    $c = aimModelCacheLoad('opencode');
+    return $c['models'][$model]['api'] ?? ($c['models'][$model] ?? null);
+}
+function aimServerModelRef($model) {
+    if (!aimModelCacheFresh('opencode-server')) return null;
+    $c = aimModelCacheLoad('opencode-server');
+    if (!isset($c['models'][$model])) return null;
+    $r = $c['models'][$model];
+    if (is_array($r) && isset($r['id'], $r['providerID'])) return ['id'=>$r['id'],'providerID'=>$r['providerID']];
+    if (is_string($r) && strpos($r, '/') !== false) {
+        list($p, $id) = explode('/', $r, 2);
+        return ['id'=>$id,'providerID'=>$p];
+    }
+    return null;
 }
 
 function aimProviderExists($provider) {
@@ -1111,7 +1174,7 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
     $providers = aimGetProviders();
     if (!isset($providers[$provider])) return ['success'=>false,'error'=>'Unknown provider: ' . $provider];
     $meta = $providers[$provider];
-    if ($meta['needsKey'] && $apiKey === '' && $provider !== 'ollama') {
+    if ($meta['needsKey'] && $apiKey === '' && $provider !== 'ollama' && $provider !== 'opencode-server') {
         return ['success'=>false,'error'=>'API key not configured for ' . $meta['label']];
     }
     if ($model === '') $model = $meta['defaultModel'];
@@ -1123,12 +1186,109 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
         return ['success'=>false,'error'=>'Model "' . $model . '" is a Gemini model, not valid for OpenAI provider. Switch provider to Google or choose a gpt-*/o1* model.'];
     }
 
-    // Build provider-specific request
+    // Build provider-specific request. $shape selects the response normalizer
+    // (OpenCode Console models use several provider families behind one API key).
     $url = '';
     $headers = [];
     $body = null;
+    $shape = $provider;
 
-    if ($provider === 'openai' || $provider === 'mistral' || $provider === 'grok' || $provider === 'openrouter') {
+    if ($provider === 'opencode') {
+        $family = aimOpencodeModelFamily($settings, $model);
+        $bearer = ['Content-Type: application/json', 'Authorization: Bearer ' . $apiKey];
+        $cb = rtrim($base, '/');
+        if ($family === 'chat-completions') {
+            $url = $cb . '/openai/v1/chat/completions';
+            $headers = $bearer;
+            $payload = ['model'=>$model,'messages'=>$messages,'temperature'=>$temperature,'max_tokens'=>$maxTokens];
+            if (!empty($tools)) {
+                $payload['tools'] = array_map(function($t){
+                    return ['type'=>'function','function'=>['name'=>$t['name'],'description'=>$t['description'],'parameters'=>$t['parameters']]];
+                }, $tools);
+                $payload['tool_choice'] = 'auto';
+            }
+            $body = json_encode($payload);
+            $shape = 'openai';
+        } elseif ($family === 'messages') {
+            $url = $cb . '/anthropic/v1/messages';
+            $headers = array_merge($bearer, ['anthropic-version: 2023-06-01']);
+            $sys = ''; $converted = [];
+            foreach ($messages as $m) {
+                if ($m['role'] === 'system') { $sys .= ($sys ? "\n" : "") . $m['content']; continue; }
+                $converted[] = ['role' => $m['role'] === 'assistant' ? 'assistant' : 'user', 'content' => $m['content']];
+            }
+            $payload = ['model'=>$model,'max_tokens'=>$maxTokens,'temperature'=>$temperature,'messages'=>$converted];
+            if ($sys !== '') $payload['system'] = $sys;
+            if (!empty($tools)) {
+                $payload['tools'] = array_map(function($t){
+                    return ['name'=>$t['name'],'description'=>$t['description'],'input_schema'=>$t['parameters']];
+                }, $tools);
+            }
+            $body = json_encode($payload);
+            $shape = 'anthropic';
+        } elseif ($family === 'generate-content' || $family === 'interactions') {
+            $url = $cb . '/google/v1beta/models/' . rawurlencode($model) . ':generateContent';
+            $headers = $bearer;
+            $sysText = ''; $contents = [];
+            foreach ($messages as $m) {
+                if ($m['role'] === 'system') { $sysText .= ($sysText ? "\n" : "") . $m['content']; continue; }
+                $role = $m['role'] === 'assistant' ? 'model' : 'user';
+                $contents[] = ['role'=>$role,'parts'=>[['text'=>$m['content']]]];
+            }
+            if ($sysText !== '') array_unshift($contents, ['role'=>'user','parts'=>[['text'=>'System instructions: ' . $sysText]]]);
+            $payload = ['contents'=>$contents,'generationConfig'=>['temperature'=>$temperature,'maxOutputTokens'=>$maxTokens]];
+            if (!empty($tools)) {
+                $payload['tools'] = [['functionDeclarations'=> array_map(function($t){
+                    return ['name'=>$t['name'],'description'=>$t['description'],'parameters'=>$t['parameters']];
+                }, $tools)]];
+            }
+            $body = json_encode($payload);
+            $shape = 'google';
+        } elseif ($family === 'responses') {
+            $url = $cb . '/openai/v1/responses';
+            $headers = $bearer;
+            $instructions = ''; $input = [];
+            foreach ($messages as $m) {
+                if ($m['role'] === 'system') { $instructions .= ($instructions ? "\n" : "") . $m['content']; continue; }
+                $input[] = ['role' => $m['role'] === 'assistant' ? 'assistant' : 'user',
+                            'content' => [['type'=>'input_text','text'=>(string)$m['content']]]];
+            }
+            $payload = ['model'=>$model,'input'=>$input,'max_output_tokens'=>$maxTokens];
+            if ($instructions !== '') $payload['instructions'] = $instructions;
+            if (!empty($tools)) {
+                $payload['tools'] = array_map(function($t){
+                    return ['type'=>'function','name'=>$t['name'],'description'=>$t['description'],'parameters'=>$t['parameters']];
+                }, $tools);
+                $payload['tool_choice'] = 'auto';
+            }
+            $body = json_encode($payload);
+            $shape = 'responses';
+        } else {
+            return ['success'=>false,'error'=>'OpenCode model "' . $model . '" uses unsupported API family "' . (string)$family . '". Choose another model in Config.'];
+        }
+    } elseif ($provider === 'opencode-server') {
+        // Self-hosted OpenCode has no native FPP tool-call API. Send one composed
+        // prompt and ask for a strict JSON tool-call block; parse it below.
+        $url = rtrim($base, '/') . '/api/experimental/generate/text';
+        $headers = ['Content-Type: application/json'];
+        if ($apiKey !== '') $headers[] = 'Authorization: Bearer ' . $apiKey;
+        $parts = [];
+        foreach ($messages as $m) {
+            $label = $m['role'] === 'system' ? 'SYSTEM' : ($m['role'] === 'assistant' ? 'ASSISTANT' : 'USER');
+            $parts[] = $label . ":\n" . $m['content'];
+        }
+        $toolDesc = array_map(function($t){ return $t['name'] . ': ' . $t['description']; }, $tools);
+        $prompt = implode("\n\n", $parts)
+            . "\n\nFPP TOOL CALLING:\nYou may propose FPP tool calls. To do so reply with ONLY a JSON object of this exact shape and no other text:\n"
+            . '{"tool_calls":[{"name":"tool_name","arguments":{}}]}' . "\n"
+            . 'Available tools: ' . implode('; ', $toolDesc) . "\n"
+            . "Use an empty tool_calls array [] if no tool is needed, or answer normally as plain text if no tools are required.";
+        $payload = ['prompt'=>$prompt];
+        $ref = aimServerModelRef($model);
+        if ($ref) $payload['model'] = $ref;
+        $body = json_encode($payload);
+        $shape = 'opencode-server';
+    } elseif ($provider === 'openai' || $provider === 'mistral' || $provider === 'grok' || $provider === 'openrouter') {
         $url = rtrim($base, '/') . '/chat/completions';
         $headers = ['Content-Type: application/json', 'Authorization: Bearer ' . $apiKey];
         if ($provider === 'openrouter') {
@@ -1314,6 +1474,8 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
             $hint = ' — Model "' . $model . '" not found for provider ' . $provider . '. Check Config → Model picker for valid models for this provider.';
         } elseif ($code === 401) {
             $hint = ' — check API key for ' . $provider;
+        } elseif ($code === 403 && $provider === 'opencode') {
+            $hint = ' — free models are available inside OpenCode only; choose a paid model or use an OpenCode Go subscription';
         } elseif ($code === 429) {
             $hint = ' — Quota exceeded (free tier limit, e.g. 20 req for gemini-3.6-flash). Retry in 20-30s, check your provider\'s rate-limit docs, or switch to Ollama/local or a different provider/model.';
             if (preg_match('/retry in ([0-9.]+)s/i', $snippet, $rm)) $hint .= ' Suggested retry in ' . $rm[1] . 's.';
@@ -1327,7 +1489,7 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
     $reply = '';
     $toolCalls = [];
 
-    if ($provider === 'openai' || $provider === 'mistral' || $provider === 'grok' || $provider === 'openrouter' || $provider === 'azure') {
+    if ($shape === 'openai' || $shape === 'mistral' || $shape === 'grok' || $shape === 'openrouter' || $shape === 'azure') {
         $choice = $decoded['choices'][0] ?? null;
         if ($choice) {
             $msg = $choice['message'] ?? [];
@@ -1344,7 +1506,7 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
                 $toolCalls[] = ['id'=>uniqid('call_'), 'name'=>$fc['name'] ?? '', 'arguments'=> json_decode($fc['arguments'] ?? '{}', true) ?: []];
             }
         }
-    } elseif ($provider === 'anthropic') {
+    } elseif ($shape === 'anthropic') {
         $blocks = $decoded['content'] ?? [];
         foreach ($blocks as $b) {
             if (($b['type'] ?? '') === 'text') $reply .= $b['text'];
@@ -1356,7 +1518,7 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
         if ($reply === '' && empty($toolCalls) && isset($decoded['content'])) {
             $reply = json_encode($decoded['content']);
         }
-    } elseif ($provider === 'google') {
+    } elseif ($shape === 'google') {
         $cand = $decoded['candidates'][0] ?? null;
         $parts = $cand['content']['parts'] ?? [];
         foreach ($parts as $p) {
@@ -1366,7 +1528,40 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
                 $toolCalls[] = ['id'=>uniqid('call_'), 'name'=>$fc['name'] ?? '', 'arguments'=> $fc['args'] ?? []];
             }
         }
-    } elseif ($provider === 'ollama') {
+    } elseif ($shape === 'responses') {
+        // OpenAI Responses API: output_text at top level, or message/output_text
+        // items and function_call items inside output[].
+        if (isset($decoded['output_text']) && is_string($decoded['output_text'])) $reply = $decoded['output_text'];
+        foreach (($decoded['output'] ?? []) as $item) {
+            $t = $item['type'] ?? '';
+            if ($t === 'message') {
+                foreach (($item['content'] ?? []) as $c) {
+                    if (($c['type'] ?? '') === 'output_text') $reply .= (string)($c['text'] ?? '');
+                    elseif (isset($c['text']) && is_string($c['text'])) $reply .= $c['text'];
+                }
+            } elseif ($t === 'function_call') {
+                $args = $item['arguments'] ?? [];
+                if (is_string($args)) $args = json_decode($args, true) ?: [];
+                $toolCalls[] = ['id'=>$item['call_id'] ?? uniqid('call_'), 'name'=>$item['name'] ?? '', 'arguments'=>$args];
+            }
+        }
+    } elseif ($shape === 'opencode-server') {
+        $text = trim((string)($decoded['data']['text'] ?? ''));
+        // Models often wrap the JSON block in a fenced code block.
+        if (preg_match('/```(?:json)?\s*([\s\S]*?)```/i', $text, $mm)) $text = trim($mm[1]);
+        $parsed = json_decode($text, true);
+        if (is_array($parsed) && isset($parsed['tool_calls']) && is_array($parsed['tool_calls'])) {
+            foreach ($parsed['tool_calls'] as $tc) {
+                $args = $tc['arguments'] ?? [];
+                if (is_string($args)) $args = json_decode($args, true) ?: [];
+                if (empty($tc['name'])) continue;
+                $toolCalls[] = ['id'=>uniqid('call_'), 'name'=>(string)$tc['name'], 'arguments'=>is_array($args)?$args:[]];
+            }
+            if (isset($parsed['reply']) && is_string($parsed['reply'])) $reply = $parsed['reply'];
+        } else {
+            $reply = $text;
+        }
+    } elseif ($shape === 'ollama') {
         $msg = $decoded['message'] ?? [];
         $reply = $msg['content'] ?? $decoded['response'] ?? '';
         foreach (($msg['tool_calls'] ?? $decoded['tool_calls'] ?? []) as $tc) {
@@ -1542,6 +1737,80 @@ function aimToolsEndpoint() {
     return json(['success'=>true,'tools'=> aimGetTools()]);
 }
 
+function aimFetchOpencodeModels($base, $apiKey, $timeout = 12) {
+    $url = rtrim((string)$base, '/') . '/v1/models';
+    $headers = ['Accept: application/json'];
+    if ($apiKey !== '') $headers[] = 'Authorization: Bearer ' . $apiKey;
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+    curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+    $resp = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch);
+    if (function_exists("curl_close") && version_compare(PHP_VERSION, "8.0", "<")) @curl_close($ch);
+    if ($err) return ['success'=>false,'error'=>'Curl error: ' . $err];
+    if ($code < 200 || $code >= 300) return ['success'=>false,'error'=>'HTTP ' . $code . ': ' . substr((string)$resp, 0, 400)];
+    $decoded = json_decode($resp, true);
+    if (!is_array($decoded)) return ['success'=>false,'error'=>'Invalid JSON from OpenCode'];
+    $supported = ['chat-completions','messages','responses','generate-content','interactions'];
+    $models = []; $meta = [];
+    foreach (($decoded['data'] ?? []) as $m) {
+        if (!is_array($m) || ($m['type'] ?? 'chat') !== 'chat') continue;
+        $id = (string)($m['id'] ?? '');
+        $api = (string)($m['recommended_api'] ?? '');
+        if ($id === '' || !in_array($api, $supported, true)) continue;
+        $models[] = $id;
+        $meta[$id] = ['api'=>$api,'name'=>(string)($m['name'] ?? $id)];
+    }
+    if (empty($models)) return ['success'=>false,'error'=>'No supported chat models returned by OpenCode'];
+    sort($models);
+    aimModelCacheSave('opencode', ['models'=>$meta]);
+    return ['success'=>true,'models'=>$models,'meta'=>$meta];
+}
+
+function aimFetchOpencodeServerModels($base, $apiKey, $timeout = 8) {
+    $url = rtrim((string)$base, '/') . '/api/model';
+    $headers = ['Accept: application/json'];
+    if ($apiKey !== '') $headers[] = 'Authorization: Bearer ' . $apiKey;
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+    curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+    $resp = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch);
+    if (function_exists("curl_close") && version_compare(PHP_VERSION, "8.0", "<")) @curl_close($ch);
+    if ($err) return ['success'=>false,'error'=>'Curl error: ' . $err];
+    if ($code < 200 || $code >= 300) return ['success'=>false,'error'=>'HTTP ' . $code . ': ' . substr((string)$resp, 0, 400) . ' — is OpenCode running with `opencode serve`?'];
+    $decoded = json_decode($resp, true);
+    if (!is_array($decoded)) return ['success'=>false,'error'=>'Invalid JSON from OpenCode server'];
+    $rows = $decoded['data'] ?? $decoded;
+    $models = []; $meta = [];
+    foreach ($rows as $k => $m) {
+        if (!is_array($m)) continue;
+        $id = (string)($m['id'] ?? (is_string($k) ? $k : ''));
+        $pid = (string)($m['providerID'] ?? '');
+        if ($id === '') continue;
+        $label = $pid !== '' ? $pid . '/' . $id : $id;
+        $models[] = $label;
+        $meta[$label] = ['id'=>$id,'providerID'=>$pid];
+    }
+    if (empty($models)) return ['success'=>false,'error'=>'No models returned by OpenCode server'];
+    $models = array_values(array_unique($models));
+    sort($models);
+    aimModelCacheSave('opencode-server', ['models'=>$meta]);
+    return ['success'=>true,'models'=>$models,'meta'=>$meta];
+}
+
 function aimFetchProviderModels($provider, $apiKey, $baseUrl, $timeout = 12) {
     $providers = aimGetProviders();
     if (!isset($providers[$provider])) return ['success'=>false,'error'=>'Unknown provider: ' . $provider];
@@ -1550,6 +1819,8 @@ function aimFetchProviderModels($provider, $apiKey, $baseUrl, $timeout = 12) {
         return ['success'=>false,'error'=>'API key required to list models for ' . $meta['label']];
     }
     $base = $baseUrl ? rtrim($baseUrl, '/') : rtrim($meta['defaultBase'], '/');
+    if ($provider === 'opencode') return aimFetchOpencodeModels($base, $apiKey, $timeout);
+    if ($provider === 'opencode-server') return aimFetchOpencodeServerModels($base, $apiKey, $timeout);
     $url = '';
     $headers = [];
     if ($provider === 'openai' || $provider === 'mistral' || $provider === 'grok' || $provider === 'openrouter') {
