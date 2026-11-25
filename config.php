@@ -173,14 +173,14 @@ fieldset legend { font-weight:700; font-size:14px; padding:0 8px; }
                     </td>
                 </tr>
                 <tr>
-                    <td style="padding:6px;"><b>② API Key:</b> <span class="text-danger">*</span></td>
+                    <td style="padding:6px;"><b id="aim_key_label">② API Key:</b> <span id="aim_key_required" class="text-danger">*</span></td>
                     <td style="padding:6px;">
                         <div class="d-flex flex-wrap gap-2 align-items-center">
                             <input type="password" id="aim_api_key" class="form-control" style="flex:1 1 260px; min-width:0; font-family:monospace; font-size:13px;" placeholder="Paste API key here">
                             <label class="form-check-label" style="font-size:13px;"><input type="checkbox" class="form-check-input" id="aim_show_key" onchange="$('#aim_api_key').attr('type', this.checked ? 'text':'password')"> Show</label>
                             <span id="aim_key_status" class="text-secondary" style="font-size:12px;"></span>
                         </div>
-                        <div class="text-secondary" style="font-size:11px; margin-top:6px;">
+                        <div id="aim_key_help" class="text-secondary" style="font-size:11px; margin-top:6px;">
                             Stored locally. Leave blank only for <b>Ollama</b> (local). Expected format: <span id="aim_key_hint" class="text-warning" style="font-weight:600;"></span>
                         </div>
                     </td>
@@ -354,7 +354,26 @@ var aimConfig = {
         var typed = $('#aim_api_key').val();
         return (!typed && aimConfig.hasSavedKey(prov)) ? aimConfig.keepKeySentinel : typed;
     },
+    // The same input holds a cloud API key, an Ollama placeholder, or the
+    // OpenCode server's HTTP Basic password (with Bearer/user:pass variants).
+    setCredentialLabels: function(prov){
+        var optional = (prov==='ollama' || prov==='opencode-server');
+        $('#aim_key_required').toggle(!optional);
+        if (prov==='opencode-server') {
+            $('#aim_key_label').text('② Password / Token:');
+            $('#aim_api_key').attr('placeholder','OpenCode password — sent as opencode:<password> (or user:pass / Bearer …); blank = no auth');
+            $('#aim_key_help').html('For an OpenCode server this field holds its <b>HTTP Basic password</b> (or <code>user:pass</code> / <code>Bearer &lt;token&gt;</code>). Find it in <code>~/.local/state/opencode/service.json</code> or <code>OPENCODE_PASSWORD</code>. Stored locally with 0600.');
+        } else if (prov==='ollama') {
+            $('#aim_key_label').text('② API Key:');
+            $('#aim_api_key').attr('placeholder','No key needed — set Ollama host below');
+            $('#aim_key_help').html('Ollama needs no key. Leave this blank and set the <b>Base URL</b> to your Ollama host.');
+        } else {
+            $('#aim_key_label').text('② API Key:');
+            $('#aim_key_help').html('Stored locally. Expected format: <span id="aim_key_hint" class="text-warning" style="font-weight:600;"></span>');
+        }
+    },
     loadProvider: function(prov){
+        aimConfig.setCredentialLabels(prov);
         var p = aimConfig._providers[prov] || {api_key:'',model:'',base_url:'',key_set:0};
         var meta = aimProviders[prov] || {models:[], defaultBase:''};
         $('#aim_api_key').val(''); // stored keys are never sent to the browser
@@ -365,7 +384,7 @@ var aimConfig = {
         if(prov==='ollama') $('#aim_key_status').html(p.base_url ? '<span class="text-success">✓ host set</span>' : '<span class="text-warning">— not installed</span>');
         else if(prov==='opencode-server') $('#aim_key_status').html(p.base_url ? '<span class="text-success">✓ server set</span>' : '<span class="text-secondary">— using default localhost:4096</span>');
         else $('#aim_key_status').html(p.key_set ? ('<span class="text-success">✓ key set</span> <span class="text-secondary">'+escHtml(p.key_hint||'')+'</span>') : '—');
-        $('#aim_api_key').attr('placeholder', p.key_set ? 'Key saved — leave blank to keep, or paste a new key' : 'Paste API key here');
+        if (prov!=='opencode-server') $('#aim_api_key').attr('placeholder', p.key_set ? 'Key saved — leave blank to keep, or paste a new key' : 'Paste API key here');
         setTimeout(function(){ aimConfig.fetchModels(false); }, 400);
     },
     populateModels: function(fetched){
@@ -407,10 +426,10 @@ var aimConfig = {
         } else if(!fetched && list.length){
             $('#aim_models_status').html('<span class="text-secondary">Preset '+list.length+' — fetching live…</span>');
         }
-        var hint=''; if(prov==='openai') hint='sk-…'; else if(prov==='anthropic') hint='sk-ant-…'; else if(prov==='google') hint='AIza…'; else if(prov==='grok') hint='xai-…'; else if(prov==='openrouter') hint='sk-or-…'; else if(prov==='opencode') hint='oc_sk_…'; else if(prov==='ollama') hint='no key — requires host'; else if(prov==='opencode-server') hint='no key — optional bearer token'; else if(prov==='azure') hint='Azure API key';
+        var hint=''; if(prov==='openai') hint='sk-…'; else if(prov==='anthropic') hint='sk-ant-…'; else if(prov==='google') hint='AIza…'; else if(prov==='grok') hint='xai-…'; else if(prov==='openrouter') hint='sk-or-…'; else if(prov==='opencode') hint='oc_sk_…'; else if(prov==='ollama') hint='no key — requires host'; else if(prov==='opencode-server') hint='Basic password (opencode:<pass>)'; else if(prov==='azure') hint='Azure API key';
         $('#aim_key_hint').text(hint ? 'Expected: '+hint : '');
         if(prov==='ollama') $('#aim_api_key').attr('placeholder','No key needed — set Ollama host below if installed');
-        else if(prov==='opencode-server') $('#aim_api_key').attr('placeholder','Optional bearer token for your OpenCode server');
+        else if(prov==='opencode-server') $('#aim_api_key').attr('placeholder','OpenCode password — sent as opencode:<password> (or user:pass / Bearer …); blank = no auth');
         else $('#aim_api_key').attr('placeholder','Paste your API key to fetch live models');
         if(prov==='ollama') {
             $('#aim_base_url').attr('placeholder','http://<ollama-host>:11434 — leave empty if not using Ollama');
