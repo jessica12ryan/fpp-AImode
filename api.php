@@ -1205,7 +1205,7 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
     if (!isset($providers[$provider])) return ['success'=>false,'error'=>'Unknown provider: ' . $provider];
     $meta = $providers[$provider];
     if ($meta['needsKey'] && $apiKey === '' && $provider !== 'ollama' && $provider !== 'opencode-server') {
-        return ['success'=>false,'error'=>'API key not configured for ' . $meta['label']];
+        return ['success'=>false,'error'=>'API key not configured for ' . $meta['label'] . ' — paste it in Config, then click Save This Provider (or just Test Connection).'];
     }
     if ($model === '') $model = $meta['defaultModel'];
     // Provider/model sanity check — give friendly error before HTTP 404
@@ -2058,20 +2058,18 @@ function aimModelsEndpoint() {
     $body = array_merge($_POST, $body);
     $settings = aimLoadSettings();
     $provider = trim((string)($body['provider'] ?? $settings['defaultProvider'] ?? $settings['provider'] ?? ''));
-    // Keys and destinations of cloud providers are never taken from a request.
-    // The self-hosted server is the exception: this request already passed the
-    // same-origin check, and the operator may be trying a URL/token before saving.
+    // A key typed in Config may be used to fetch the live model list before
+    // saving. The same-origin check above protects this; the destination is
+    // still only taken from saved settings (except the self-hosted server).
     $cfg = aimGetProviderConfig($settings, $provider);
     $apiKey = $cfg['api_key'];
     $baseUrl = $cfg['base_url'];
-    if ($provider === 'opencode-server') {
-        if (isset($body['base_url']) && trim((string)$body['base_url']) !== '') {
-            $baseUrl = rtrim(trim((string)$body['base_url']), '/');
-        }
-        if (isset($body['api_key']) && trim((string)$body['api_key']) !== ''
-            && trim((string)$body['api_key']) !== AIM_KEEP_KEY_SENTINEL) {
-            $apiKey = trim((string)$body['api_key']);
-        }
+    if (isset($body['api_key']) && trim((string)$body['api_key']) !== ''
+        && trim((string)$body['api_key']) !== AIM_KEEP_KEY_SENTINEL) {
+        $apiKey = trim((string)$body['api_key']);
+    }
+    if ($provider === 'opencode-server' && isset($body['base_url']) && trim((string)$body['base_url']) !== '') {
+        $baseUrl = rtrim(trim((string)$body['base_url']), '/');
     }
     if (!$provider) return json(['success'=>false,'error'=>'Provider required']);
     $res = aimFetchProviderModels($provider, $apiKey, $baseUrl);
@@ -2133,21 +2131,19 @@ function aimTestEndpoint() {
     $raw = file_get_contents('php://input');
     if (!empty($raw)) { $j = json_decode($raw, true); if (is_array($j)) $body = array_merge($body, $j); }
     $settings = aimLoadSettings();
-    // The provider may be chosen by the request, but its key and endpoint come
-    // only from saved settings. A model typed in the Config page may be tested
-    // before saving; it is just a string in a URL path, not a secret or host.
+    // The provider may be chosen by the request. A key typed in the Config
+    // page can be tested before saving — the same-origin check above already
+    // stops a cross-site caller, and the key is never persisted by /test.
+    // The destination is still always taken from saved settings (only the
+    // self-hosted server may test an unsaved URL).
     $testProvider = trim((string)($body['provider'] ?? $settings['defaultProvider'] ?? $settings['provider'] ?? 'openai'));
     $effective = aimGetProviderConfig($settings, $testProvider);
-    // For the self-hosted server, the operator may be testing a URL/token typed
-    // but not yet saved. This request has already passed the same-origin check.
-    if ($testProvider === 'opencode-server') {
-        if (isset($body['base_url']) && trim((string)$body['base_url']) !== '') {
-            $effective['base_url'] = rtrim(trim((string)$body['base_url']), '/');
-        }
-        if (isset($body['api_key']) && trim((string)$body['api_key']) !== ''
-            && trim((string)$body['api_key']) !== AIM_KEEP_KEY_SENTINEL) {
-            $effective['api_key'] = trim((string)$body['api_key']);
-        }
+    if (isset($body['api_key']) && trim((string)$body['api_key']) !== ''
+        && trim((string)$body['api_key']) !== AIM_KEEP_KEY_SENTINEL) {
+        $effective['api_key'] = trim((string)$body['api_key']);
+    }
+    if ($testProvider === 'opencode-server' && isset($body['base_url']) && trim((string)$body['base_url']) !== '') {
+        $effective['base_url'] = rtrim(trim((string)$body['base_url']), '/');
     }
     $settings['provider'] = $effective['provider'];
     $settings['defaultProvider'] = $effective['provider'];
