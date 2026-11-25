@@ -503,10 +503,11 @@ var aimConfig = {
         if(prov!=='ollama' && !typedKey && !hadKey){
             if(prov!=='opencode-server' && !confirm('No API key for '+prov+'. Save anyway?')) return;
         }
-        // Update local map without ever keeping a plaintext key here
+        // Send the typed key to FPP's save endpoint. The sentinel means "keep
+        // the previously stored key" and must only be used when the field was
+        // left blank — otherwise a newly typed key is silently discarded.
         aimConfig._providers[prov] = $.extend({}, aimConfig._providers[prov] || {}, {
-            // Never keep a plaintext key in browser memory either.
-            api_key: (hadKey || typedKey) ? aimConfig.keepKeySentinel : '',
+            api_key: typedKey ? typedKey : (hadKey ? aimConfig.keepKeySentinel : ''),
             key_set: hadKey || !!typedKey,
             key_hint: typedKey ? ('••••'+typedKey.slice(-4)) : ((aimConfig._providers[prov]||{}).key_hint || ''),
             model: data.model,
@@ -527,7 +528,20 @@ var aimConfig = {
             dataType:'json',
             success:function(r){
                 if(r.success){
+                    // The server returns masked keys only. Trust that for the
+                    // "key set" indicator so a failed save cannot look successful.
+                    if(r.settings && r.settings.providers && r.settings.providers[prov]){
+                        var saved = r.settings.providers[prov];
+                        aimConfig._providers[prov].api_key = aimConfig.keepKeySentinel;
+                        aimConfig._providers[prov].key_set = !!saved.api_key;
+                        aimConfig._providers[prov].key_hint = saved.api_key || '';
+                    }
                     $('#aim_save_result').html('<span class="text-success">Saved '+prov+'!</span>');
+                    if(typedKey){
+                        $('#aim_api_key').val('');
+                        var hint = aimConfig._providers[prov].key_hint || '';
+                        $('#aim_key_status').html('<span class="text-success">✓ key saved</span> <span class="text-secondary">'+escHtml(hint)+'</span>');
+                    }
                     aimConfig.renderOverview();
                     $.jGrowl('Saved '+prov,{themeState:'success'});
                 } else {
