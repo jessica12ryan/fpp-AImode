@@ -138,6 +138,7 @@ $hasKey = !empty($aimSettings['api_key']) || in_array($aimSettings['provider'], 
                 <label for="aimConvProvider">🤖 Model for this chat</label>
                 <select id="aimConvProvider" class="form-select" style="flex:0 1 150px; max-width:165px; font-size:12px; font-weight:500;" onchange="aimConv.onProviderChange()"></select>
                 <select id="aimConvModel" class="form-select" style="flex:1 1 160px; max-width:260px; font-size:12px;" onchange="aimConv.onModelChange()"></select>
+                <span id="aimEffectiveModel" class="small text-secondary" style="white-space:nowrap;" title="The model this chat will actually use — a per-conversation choice overrides Config">Using: …</span>
                 <button type="button" class="buttons" onclick="aimConv.saveProvider()" title="Save this model for this conversation only" style="font-weight:600;">💾 Save</button>
                 <button type="button" class="buttons" onclick="aimConv.fetchModels(true)" title="Refresh model list from provider">↻</button>
                 <span id="aim-mode-badges" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
@@ -226,6 +227,10 @@ var aimChat = {
         if(aimChat.busy) return;
         var prompt = $('#aimPrompt').val().trim();
         if(!prompt){ $.jGrowl('Type a prompt first',{themeState:'error'}); return; }
+        if(aimConv.isFreeModelSelected()){
+            if(!confirm('This chat is using a free OpenCode model ('+($('#aimConvModel').val()||'server default')+'). Free usage is capped account-wide and API clients are often blocked even when that specific model looks unused. Choose a paid model in the bar below (then Save), or continue anyway?')) return;
+        }
+        aimConv.updateEffectiveModel();
         var convId = aimConv.currentId || aimChat.currentConvId;
         aimChat.busy=true;
         $('#aimSendBtn').prop('disabled',true).text('…');
@@ -508,7 +513,7 @@ var aimConv = {
                     $('#aimConvProvider').val(prov);
                     aimConv.fetchModelsForProvider(prov);
                     // Keep model selection after fetch populates
-                    setTimeout(function(){ if(conv.model) $('#aimConvModel').val(conv.model); }, 600);
+                    setTimeout(function(){ if(conv.model) $('#aimConvModel').val(conv.model); aimConv.updateEffectiveModel(); }, 600);
                 });
                 $('#aimMessages').empty();
                 if(!conv.messages || !conv.messages.length){
@@ -748,6 +753,28 @@ var aimConv = {
     },
     onModelChange: function(){
         $('#aimConvProviderStatus').html('<span class="text-warning">• unsaved</span>');
+        aimConv.updateEffectiveModel();
+    },
+    // The chat API uses the conversation's saved model, not the Config
+    // default. Show exactly what will be used, with a free-model warning.
+    updateEffectiveModel: function(){
+        var prov = $('#aimConvProvider').val() || '';
+        var sel = $('#aimConvModel');
+        var val = sel.val() || '';
+        var text = (sel.find('option:selected').text() || '').replace(/ \(free — rate limited\)$/, '');
+        var free = /free/i.test(val) || /free — rate limited/i.test(sel.find('option:selected').text() || '');
+        var label = prov + '/' + (val || 'server default');
+        $('#aimEffectiveModel')
+            .text('Using: ' + label + (free ? ' ⚠ free — capped' : ''))
+            .toggleClass('text-warning', free)
+            .toggleClass('text-secondary', !free)
+            .attr('title', free
+                ? 'Free OpenCode models share an account-wide usage cap; API clients are often blocked. Choose a paid model.'
+                : 'This chat uses its saved model, which overrides the Config default. Press Save to change it.');
+    },
+    isFreeModelSelected: function(){
+        var sel = $('#aimConvModel');
+        return /free/i.test(sel.val() || '') || /free — rate limited/i.test(sel.find('option:selected').text() || '');
     },
     fetchModels: function(manual){
         var prov = $('#aimConvProvider').val();
@@ -761,6 +788,7 @@ var aimConv = {
         // Immediate preset population so dropdown is never empty (shows instantly even if live fetch stalls)
         var presetImmediate = (typeof aimProviders !== 'undefined' && aimProviders && aimProviders[prov] && aimProviders[prov].models) ? aimProviders[prov].models : ((window.aimProviders && window.aimProviders[prov] && window.aimProviders[prov].models) ? window.aimProviders[prov].models : []);
         sel.empty();
+        sel.append($('<option>',{value:'',text:prov==='opencode-server'?'Use server default':'Use global default'}));
         if(presetImmediate && presetImmediate.length){
             presetImmediate.forEach(function(m){ sel.append($('<option>',{value:m,text:m})); });
             var curImm = aimConv._currentModel || '';
@@ -771,6 +799,7 @@ var aimConv = {
             } else {
                 $('#aimConvProviderStatus').html('<span class="text-secondary">Preset '+presetImmediate.length+' — fetching live…</span>');
             }
+            aimConv.updateEffectiveModel();
         } else if (prov==='opencode-server') {
             sel.append($('<option>',{value:'',text:'Use server default'}));
         } else {
@@ -796,6 +825,7 @@ var aimConv = {
             success: function(r){
                 if(r.success && r.models && r.models.length){
                     sel.empty();
+                    sel.append($('<option>',{value:'',text:prov==='opencode-server'?'Use server default':'Use global default'}));
                     r.models.forEach(function(m){
                         var meta = (r.meta||{})[m];
                         sel.append($('<option>',{value:m,text:m+(meta && meta.free ? ' (free — rate limited)' : '')}));
@@ -803,6 +833,7 @@ var aimConv = {
                     var cur2 = aimConv._currentModel || '';
                     if(cur2 && r.models.indexOf(cur2)===-1) sel.append($('<option>',{value:cur2,text:cur2+' (custom)'}));
                     if(cur2) sel.val(cur2);
+                    aimConv.updateEffectiveModel();
                     $('#aimConvProviderStatus').html('<span class="text-success">✓ '+r.models.length+' models (live)</span>');
                     if(manual) $.jGrowl('Fetched '+r.models.length+' models for '+prov,{themeState:'success'});
                     setTimeout(function(){ $('#aimConvProviderStatus').text(''); }, 3000);
@@ -833,7 +864,9 @@ var aimConv = {
     saveProvider: function(){
         var prov = $('#aimConvProvider').val();
         var model = $('#aimConvModel').val() || $('#aimConvModel').find('option:selected').val();
-        if(!prov || (!model && prov!=='opencode-server')){ $.jGrowl('Provider and model required',{themeState:'error'}); return; }
+        if(!prov){ $.jGrowl('Provider required',{themeState:'error'}); return; }
+        // An empty model means "use the global Config default" — useful when a
+        // conversation was pinned to a free model that has hit its usage cap.
         var id = aimConv.currentId;
         if(!id){ $.jGrowl('No conversation selected',{themeState:'error'}); return; }
         $('#aimConvProviderStatus').html('<span class="text-secondary">Saving…</span>');

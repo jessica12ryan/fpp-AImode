@@ -1332,7 +1332,13 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
         if (!$r['success']) {
             $err = 'OpenCode server: ' . $r['error'] . ' [model: ' . $usedModel . ']';
             if (stripos($r['error'], 'rate_limit') !== false || stripos($r['error'], 'Free usage limit') !== false) {
-                $err .= ' — this is a free-tier model/limit; choose a paid model in Config or subscribe to OpenCode Go.';
+                $err .= ' — OpenCode\'s free usage cap is account-wide across all free models, so a model that looks unused can still be blocked.';
+                $configModel = aimGetProviderConfig(aimLoadSettings(), 'opencode-server')['model'] ?? '';
+                if ($model !== '' && $configModel !== '' && $configModel !== $model) {
+                    $err .= ' This chat is pinned to "' . $model . '" while Config defaults to "' . $configModel
+                        . '" — change the model in the Assistant bar and press Save (or start a new chat).';
+                }
+                $err .= ' choose a paid model or subscribe to OpenCode Go.';
             }
             return ['success'=>false,'error'=>$err];
         }
