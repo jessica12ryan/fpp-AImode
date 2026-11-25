@@ -796,7 +796,10 @@ var aimConv = {
             success: function(r){
                 if(r.success && r.models && r.models.length){
                     sel.empty();
-                    r.models.forEach(function(m){ sel.append($('<option>',{value:m,text:m})); });
+                    r.models.forEach(function(m){
+                        var meta = (r.meta||{})[m];
+                        sel.append($('<option>',{value:m,text:m+(meta && meta.free ? ' (free — rate limited)' : '')}));
+                    });
                     var cur2 = aimConv._currentModel || '';
                     if(cur2 && r.models.indexOf(cur2)===-1) sel.append($('<option>',{value:cur2,text:cur2+' (custom)'}));
                     if(cur2) sel.val(cur2);
@@ -830,7 +833,7 @@ var aimConv = {
     saveProvider: function(){
         var prov = $('#aimConvProvider').val();
         var model = $('#aimConvModel').val() || $('#aimConvModel').find('option:selected').val();
-        if(!prov || !model){ $.jGrowl('Provider and model required',{themeState:'error'}); return; }
+        if(!prov || (!model && prov!=='opencode-server')){ $.jGrowl('Provider and model required',{themeState:'error'}); return; }
         var id = aimConv.currentId;
         if(!id){ $.jGrowl('No conversation selected',{themeState:'error'}); return; }
         $('#aimConvProviderStatus').html('<span class="text-secondary">Saving…</span>');

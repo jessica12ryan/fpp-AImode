@@ -378,7 +378,11 @@ var aimConfig = {
         if(!list || !list.length) list = meta.models || [];
         var sel = $('#aim_model_select').empty();
         if (prov==='opencode-server') sel.append($('<option>',{value:'',text:'Use server default'}));
-        (list||[]).forEach(function(m){ sel.append($('<option>',{value:m,text:m})); });
+        (list||[]).forEach(function(m){
+            var meta = (aimConfig._modelMeta||{})[m];
+            var label = m + (meta && meta.free ? ' (free — rate limited)' : '');
+            sel.append($('<option>',{value:m,text:label}));
+        });
         var cur = $('#aim_model').val();
         if (cur && list.indexOf(cur)===-1 && cur.indexOf('/')===-1) {
             sel.append($('<option>',{value:cur,text:cur+' (custom)'}));
@@ -448,6 +452,7 @@ var aimConfig = {
             timeout: 12000,
             success:function(r){
                 if(r.success && r.models && r.models.length){
+                    aimConfig._modelMeta = r.meta || {};
                     aimConfig.populateModels(r.models);
                     if(manual) $.jGrowl('Fetched '+r.models.length+' live models for '+prov,{themeState:'success'});
                 } else {

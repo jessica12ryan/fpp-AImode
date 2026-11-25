@@ -242,16 +242,46 @@ function aimOpencodeModelFamily($settings, $model) {
     return $c['models'][$model]['api'] ?? ($c['models'][$model] ?? null);
 }
 function aimServerModelRef($model) {
-    if (!aimModelCacheFresh('opencode-server')) return null;
     $c = aimModelCacheLoad('opencode-server');
-    if (!isset($c['models'][$model])) return null;
-    $r = $c['models'][$model];
-    if (is_array($r) && isset($r['id'], $r['providerID'])) return ['id'=>$r['id'],'providerID'=>$r['providerID']];
-    if (is_string($r) && strpos($r, '/') !== false) {
-        list($p, $id) = explode('/', $r, 2);
-        return ['id'=>$id,'providerID'=>$p];
+    if (!is_array($c) || empty($c['models'])) return null;
+    if (isset($c['models'][$model])) {
+        $r = $c['models'][$model];
+        if (is_array($r) && isset($r['id'], $r['providerID'])) return ['id'=>$r['id'],'providerID'=>$r['providerID']];
+        if (is_string($r) && strpos($r, '/') !== false) {
+            list($p, $id) = explode('/', $r, 2);
+            return ['id'=>$id,'providerID'=>$p];
+        }
+    }
+    // Also accept a bare model ID typed by hand.
+    foreach ($c['models'] as $r) {
+        if (is_array($r) && ($r['id'] ?? '') === $model && isset($r['providerID'])) {
+            return ['id'=>$r['id'],'providerID'=>$r['providerID']];
+        }
     }
     return null;
+}
+function aimServerDefaultModel($base, $apiKey) {
+    $r = aimServerRequest($base, '/api/model/default', $apiKey, null, 8);
+    if (!$r['success'] || !is_array($r['body'])) return null;
+    $d = $r['body']['data'] ?? $r['body'];
+    if (is_array($d) && isset($d['id'], $d['providerID'])) return $d['providerID'] . '/' . $d['id'];
+    return null;
+}
+// Turn an OpenCode ProviderRequestError into a readable message. The outer
+// HTTP status is often 502 while the real cause is a 429 inside the body.
+function aimServerErrorText($code, $text) {
+    $d = json_decode($text, true);
+    if (is_array($d) && isset($d['_tag'])) {
+        $reason = (string)($d['reason'] ?? '');
+        $message = (string)($d['message'] ?? '');
+        $retry = isset($d['retryAfterMs']) ? (int)$d['retryAfterMs'] : 0;
+        $out = $message !== '' ? $message : $reason;
+        if ($reason !== '' && stripos($out, $reason) === false) $out = '[' . $reason . '] ' . $out;
+        if (isset($d['providerID'])) $out = 'provider ' . $d['providerID'] . ': ' . $out;
+        if ($retry > 0) $out .= ' — retry after about ' . max(1, (int)ceil($retry / 60000)) . ' minute(s)';
+        return 'HTTP ' . $code . ': ' . $out;
+    }
+    return 'HTTP ' . $code . ': ' . substr($text, 0, 300);
 }
 
 function aimProviderExists($provider) {
@@ -1281,10 +1311,31 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
             . 'Available tools: ' . implode('; ', $toolDesc) . "\n"
             . "Use an empty tool_calls array [] if no tool is needed, or answer normally as plain text if no tools are required.";
         $payload = ['prompt'=>$prompt];
+        // A stale cache must not silently turn an explicit model choice into
+        // "use the server default" — that default is often a free model whose
+        // limit is already exhausted.
+        if (!aimModelCacheFresh('opencode-server')) {
+            aimFetchOpencodeServerModels($base, $apiKey, 8);
+        }
         $ref = aimServerModelRef($model);
-        if ($ref) $payload['model'] = $ref; // otherwise the server uses its own default
+        if ($model !== '' && !$ref) {
+            return ['success'=>false,'error'=>'Model "' . $model . '" is not in the OpenCode server model list. Press Refresh models in Config, or choose "Use server default".'];
+        }
+        if ($ref) {
+            $payload['model'] = $ref;
+            $usedModel = $ref['providerID'] . '/' . $ref['id'];
+        } else {
+            $defaultModel = aimServerDefaultModel($base, $apiKey);
+            $usedModel = $defaultModel ? '(server default: ' . $defaultModel . ')' : '(server default)';
+        }
         $r = aimServerRequest($base, '/api/experimental/generate/text', $apiKey, json_encode($payload), $timeout);
-        if (!$r['success']) return ['success'=>false,'error'=>'OpenCode server: ' . $r['error']];
+        if (!$r['success']) {
+            $err = 'OpenCode server: ' . $r['error'] . ' [model: ' . $usedModel . ']';
+            if (stripos($r['error'], 'rate_limit') !== false || stripos($r['error'], 'Free usage limit') !== false) {
+                $err .= ' — this is a free-tier model/limit; choose a paid model in Config or subscribe to OpenCode Go.';
+            }
+            return ['success'=>false,'error'=>$err];
+        }
         $reply = trim((string)($r['body']['data']['text'] ?? ''));
         if (preg_match('/```(?:json)?\s*([\s\S]*?)```/i', $reply, $mm)) $reply = trim($mm[1]);
         $parsed = json_decode($reply, true);
@@ -1835,7 +1886,7 @@ function aimServerRequest($base, $path, $apiKey, $body = null, $timeout = 10) {
             return ['success'=>true,'code'=>$code,'body'=>json_decode($resp, true),'text'=>(string)$resp];
         }
         $last = ['success'=>false,'code'=>$code,
-                 'error'=>$err !== '' ? ('Curl error: ' . $err) : ('HTTP ' . $code . ': ' . substr((string)$resp, 0, 300))];
+                 'error'=>$err !== '' ? ('Curl error: ' . $err) : aimServerErrorText($code, (string)$resp)];
         if ($code !== 401 && $code !== 403) break;
     }
     return $last;
@@ -1866,11 +1917,21 @@ function aimFetchOpencodeServerModels($base, $apiKey, $timeout = 8) {
         if ($id === '') continue;
         $label = $pid !== '' ? $pid . '/' . $id : $id;
         $models[] = $label;
-        $meta[$label] = ['id'=>$id,'providerID'=>$pid];
+        $isFree = stripos($id, 'free') !== false;
+        if (isset($m['cost']) && is_array($m['cost'])) {
+            foreach ($m['cost'] as $cost) {
+                if (is_array($cost) && isset($cost['input']) && (float)$cost['input'] === 0.0) { $isFree = true; break; }
+            }
+        }
+        $meta[$label] = ['id'=>$id,'providerID'=>$pid,'free'=>$isFree?1:0,'name'=>(string)($m['name'] ?? $id)];
     }
     if (empty($models)) return ['success'=>false,'error'=>'OpenCode server has no models yet — configure a provider in OpenCode, then press Refresh'];
     $models = array_values(array_unique($models));
-    sort($models);
+    usort($models, function($a, $b) use ($meta) {
+        $fa = !empty($meta[$a]['free']) ? 1 : 0;
+        $fb = !empty($meta[$b]['free']) ? 1 : 0;
+        return $fa !== $fb ? $fa - $fb : strcmp($a, $b);
+    });
     aimModelCacheSave('opencode-server', ['models'=>$meta]);
     return ['success'=>true,'models'=>$models,'meta'=>$meta];
 }
@@ -2013,7 +2074,7 @@ function aimModelsEndpoint() {
         return json(['success'=>false,'error'=>$res['error']]);
     }
     aimLog('Models fetched provider=' . $provider . ' count=' . count($res['models']));
-    return json(['success'=>true,'models'=>$res['models'],'provider'=>$provider]);
+    return json(['success'=>true,'models'=>$res['models'],'meta'=>$res['meta'] ?? [],'provider'=>$provider]);
 }
 
 function aimSaveEndpoint() {
