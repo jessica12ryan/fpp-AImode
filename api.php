@@ -1268,10 +1268,7 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
         }
     } elseif ($provider === 'opencode-server') {
         // Self-hosted OpenCode has no native FPP tool-call API. Send one composed
-        // prompt and ask for a strict JSON tool-call block; parse it below.
-        $url = rtrim($base, '/') . '/api/experimental/generate/text';
-        $headers = ['Content-Type: application/json'];
-        if ($apiKey !== '') $headers[] = 'Authorization: Bearer ' . $apiKey;
+        // prompt and ask for a strict JSON tool-call block, then parse it here.
         $parts = [];
         foreach ($messages as $m) {
             $label = $m['role'] === 'system' ? 'SYSTEM' : ($m['role'] === 'assistant' ? 'ASSISTANT' : 'USER');
@@ -1285,9 +1282,23 @@ function aimCallProvider($settings, $messages, $tools, $timeout = 30) {
             . "Use an empty tool_calls array [] if no tool is needed, or answer normally as plain text if no tools are required.";
         $payload = ['prompt'=>$prompt];
         $ref = aimServerModelRef($model);
-        if ($ref) $payload['model'] = $ref;
-        $body = json_encode($payload);
-        $shape = 'opencode-server';
+        if ($ref) $payload['model'] = $ref; // otherwise the server uses its own default
+        $r = aimServerRequest($base, '/api/experimental/generate/text', $apiKey, json_encode($payload), $timeout);
+        if (!$r['success']) return ['success'=>false,'error'=>'OpenCode server: ' . $r['error']];
+        $reply = trim((string)($r['body']['data']['text'] ?? ''));
+        if (preg_match('/```(?:json)?\s*([\s\S]*?)```/i', $reply, $mm)) $reply = trim($mm[1]);
+        $parsed = json_decode($reply, true);
+        $toolCalls = [];
+        if (is_array($parsed) && isset($parsed['tool_calls']) && is_array($parsed['tool_calls'])) {
+            foreach ($parsed['tool_calls'] as $tc) {
+                $args = $tc['arguments'] ?? [];
+                if (is_string($args)) $args = json_decode($args, true) ?: [];
+                if (empty($tc['name'])) continue;
+                $toolCalls[] = ['id'=>uniqid('call_'), 'name'=>(string)$tc['name'], 'arguments'=>is_array($args)?$args:[]];
+            }
+            $reply = isset($parsed['reply']) && is_string($parsed['reply']) ? $parsed['reply'] : '';
+        }
+        return ['success'=>true,'reply'=>$reply,'tool_calls'=>$toolCalls,'raw'=>$r['body'],'model'=>$model,'provider'=>$provider];
     } elseif ($provider === 'openai' || $provider === 'mistral' || $provider === 'grok' || $provider === 'openrouter') {
         $url = rtrim($base, '/') . '/chat/completions';
         $headers = ['Content-Type: application/json', 'Authorization: Bearer ' . $apiKey];
@@ -1701,8 +1712,8 @@ function aimDiagnosticsEndpoint() {
     // 1. Settings presence
     $checks[] = ['check'=>'Provider selected','ok'=> aimProviderExists($provider), 'detail'=> $provider];
     $needsKey = $providers[$provider]['needsKey'] ?? true;
-    $checks[] = ['check'=>'API key configured','ok'=> !$needsKey || !empty($settings['api_key']), 'detail'=> $needsKey ? (!empty($settings['api_key']) ? 'present' : 'missing') : 'not required (Ollama)'];
-    $checks[] = ['check'=>'Model selected','ok'=> !empty($settings['model']), 'detail'=> $settings['model'] ?? ''];
+    $checks[] = ['check'=>'API key configured','ok'=> !$needsKey || !empty($settings['api_key']), 'detail'=> $needsKey ? (!empty($settings['api_key']) ? 'present' : 'missing') : ($provider === 'opencode-server' ? 'optional (Basic auth password/token)' : 'not required (Ollama)')];
+    $checks[] = ['check'=>'Model selected','ok'=> !empty($settings['model']) || $provider === 'opencode-server', 'detail'=> $provider === 'opencode-server' && empty($settings['model']) ? 'server default' : ($settings['model'] ?? '')];
     $checks[] = ['check'=>'Base URL','ok'=> $provider !== 'ollama' ? !empty($base) : true, 'detail'=> $base ?: ($provider==='ollama' ? 'not set — Ollama requires local install + host' : 'empty (using default)')];
     $checks[] = ['check'=>'PHP curl','ok'=> function_exists('curl_init'), 'detail'=> function_exists('curl_init') ? 'available' : 'missing'];
     $checks[] = ['check'=>'FPP reachable','ok'=> aimFppGet('/api/fppd/status', 2) !== null, 'detail'=> aimFppGet('/api/fppd/status', 2) ? 'ok' : 'unreachable'];
@@ -1726,6 +1737,12 @@ function aimDiagnosticsEndpoint() {
             }
             $checks[] = ['check'=>'Ollama reachable','ok'=>$ollamaUp,'detail'=> rtrim($base,'/') . '/api/tags: ' . $detail . ($ollamaUp ? '' : ' — is Ollama running on that host?')];
         }
+    }
+    if ($provider === 'opencode-server') {
+        $apiKey = aimGetProviderConfig($settings, $provider)['api_key'] ?? '';
+        $probe = aimServerRequest($base, '/api/info', $apiKey, null, 8);
+        $checks[] = ['check'=>'OpenCode server reachable', 'ok'=>$probe['success'],
+                     'detail'=> rtrim($base,'/') . '/api/info: ' . ($probe['success'] ? 'ok' : $probe['error'])];
     }
 
     $allOk = true;
@@ -1773,10 +1790,22 @@ function aimFetchOpencodeModels($base, $apiKey, $timeout = 12) {
     return ['success'=>true,'models'=>$models,'meta'=>$meta];
 }
 
-function aimFetchOpencodeServerModels($base, $apiKey, $timeout = 8) {
-    $url = rtrim((string)$base, '/') . '/api/model';
-    $headers = ['Accept: application/json'];
-    if ($apiKey !== '') $headers[] = 'Authorization: Bearer ' . $apiKey;
+/* OpenCode's HTTP API is protected by HTTP Basic auth (username "opencode" for
+   the managed service, password from OPENCODE_PASSWORD / service.json). Accept
+   several forms in the Config key field, and fall back to Bearer for servers
+   configured with a token instead. */
+function aimServerAuthHeadersList($apiKey) {
+    $key = trim((string)$apiKey);
+    if ($key === '') return [[]]; // no auth header — a foreground serve may be open
+    if (stripos($key, 'basic ') === 0) return [['Authorization: ' . $key]];
+    if (stripos($key, 'bearer ') === 0) return [['Authorization: ' . $key]];
+    if (strpos($key, ':') !== false) return [['Authorization: Basic ' . base64_encode($key)]];
+    return [
+        ['Authorization: Basic ' . base64_encode('opencode:' . $key)],
+        ['Authorization: Bearer ' . $key],
+    ];
+}
+function aimServerCurl($url, $headers, $body = null, $timeout = 10) {
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -1785,26 +1814,61 @@ function aimFetchOpencodeServerModels($base, $apiKey, $timeout = 8) {
     curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
     curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+    if ($body !== null) {
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+    }
     $resp = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $err = curl_error($ch);
     if (function_exists("curl_close") && version_compare(PHP_VERSION, "8.0", "<")) @curl_close($ch);
-    if ($err) return ['success'=>false,'error'=>'Curl error: ' . $err];
-    if ($code < 200 || $code >= 300) return ['success'=>false,'error'=>'HTTP ' . $code . ': ' . substr((string)$resp, 0, 400) . ' — is OpenCode running with `opencode serve`?'];
-    $decoded = json_decode($resp, true);
+    return [$resp, $code, $err];
+}
+function aimServerRequest($base, $path, $apiKey, $body = null, $timeout = 10) {
+    $url = rtrim((string)$base, '/') . $path;
+    $headers = ['Accept: application/json'];
+    if ($body !== null) $headers[] = 'Content-Type: application/json';
+    $last = null;
+    foreach (aimServerAuthHeadersList($apiKey) as $auth) {
+        list($resp, $code, $err) = aimServerCurl($url, array_merge($headers, $auth), $body, $timeout);
+        if ($err === '' && $code >= 200 && $code < 300) {
+            return ['success'=>true,'code'=>$code,'body'=>json_decode($resp, true),'text'=>(string)$resp];
+        }
+        $last = ['success'=>false,'code'=>$code,
+                 'error'=>$err !== '' ? ('Curl error: ' . $err) : ('HTTP ' . $code . ': ' . substr((string)$resp, 0, 300))];
+        if ($code !== 401 && $code !== 403) break;
+    }
+    return $last;
+}
+
+function aimFetchOpencodeServerModels($base, $apiKey, $timeout = 8) {
+    $decoded = null;
+    // A freshly started server can return an empty model snapshot before its
+    // providers settle; try twice before giving up.
+    for ($attempt = 0; $attempt < 2; $attempt++) {
+        $r = aimServerRequest($base, '/api/model', $apiKey, null, $timeout);
+        if (!$r['success']) return $r;
+        $decoded = $r['body'];
+        if (is_array($decoded) && !empty($decoded['data'])) break;
+        if ($attempt === 0) usleep(300000);
+    }
     if (!is_array($decoded)) return ['success'=>false,'error'=>'Invalid JSON from OpenCode server'];
     $rows = $decoded['data'] ?? $decoded;
     $models = []; $meta = [];
     foreach ($rows as $k => $m) {
         if (!is_array($m)) continue;
-        $id = (string)($m['id'] ?? (is_string($k) ? $k : ''));
+        // Model.Info.id is the bare model ID; providerID is separate.
+        $id = (string)($m['modelID'] ?? $m['id'] ?? (is_string($k) ? $k : ''));
         $pid = (string)($m['providerID'] ?? '');
+        if ($id !== '' && $pid !== '' && strpos($id, $pid . '/') === 0) {
+            $id = substr($id, strlen($pid) + 1);
+        }
         if ($id === '') continue;
         $label = $pid !== '' ? $pid . '/' . $id : $id;
         $models[] = $label;
         $meta[$label] = ['id'=>$id,'providerID'=>$pid];
     }
-    if (empty($models)) return ['success'=>false,'error'=>'No models returned by OpenCode server'];
+    if (empty($models)) return ['success'=>false,'error'=>'OpenCode server has no models yet — configure a provider in OpenCode, then press Refresh'];
     $models = array_values(array_unique($models));
     sort($models);
     aimModelCacheSave('opencode-server', ['models'=>$meta]);
@@ -1927,11 +1991,21 @@ function aimModelsEndpoint() {
     $body = array_merge($_POST, $body);
     $settings = aimLoadSettings();
     $provider = trim((string)($body['provider'] ?? $settings['defaultProvider'] ?? $settings['provider'] ?? ''));
-    // Keys and destinations are never taken from a request — a cross-site
-    // caller must not be able to redirect the saved key to its own host.
+    // Keys and destinations of cloud providers are never taken from a request.
+    // The self-hosted server is the exception: this request already passed the
+    // same-origin check, and the operator may be trying a URL/token before saving.
     $cfg = aimGetProviderConfig($settings, $provider);
     $apiKey = $cfg['api_key'];
     $baseUrl = $cfg['base_url'];
+    if ($provider === 'opencode-server') {
+        if (isset($body['base_url']) && trim((string)$body['base_url']) !== '') {
+            $baseUrl = rtrim(trim((string)$body['base_url']), '/');
+        }
+        if (isset($body['api_key']) && trim((string)$body['api_key']) !== ''
+            && trim((string)$body['api_key']) !== AIM_KEEP_KEY_SENTINEL) {
+            $apiKey = trim((string)$body['api_key']);
+        }
+    }
     if (!$provider) return json(['success'=>false,'error'=>'Provider required']);
     $res = aimFetchProviderModels($provider, $apiKey, $baseUrl);
     if (!$res['success']) {
@@ -1997,11 +2071,35 @@ function aimTestEndpoint() {
     // before saving; it is just a string in a URL path, not a secret or host.
     $testProvider = trim((string)($body['provider'] ?? $settings['defaultProvider'] ?? $settings['provider'] ?? 'openai'));
     $effective = aimGetProviderConfig($settings, $testProvider);
+    // For the self-hosted server, the operator may be testing a URL/token typed
+    // but not yet saved. This request has already passed the same-origin check.
+    if ($testProvider === 'opencode-server') {
+        if (isset($body['base_url']) && trim((string)$body['base_url']) !== '') {
+            $effective['base_url'] = rtrim(trim((string)$body['base_url']), '/');
+        }
+        if (isset($body['api_key']) && trim((string)$body['api_key']) !== ''
+            && trim((string)$body['api_key']) !== AIM_KEEP_KEY_SENTINEL) {
+            $effective['api_key'] = trim((string)$body['api_key']);
+        }
+    }
     $settings['provider'] = $effective['provider'];
     $settings['defaultProvider'] = $effective['provider'];
     $settings['api_key'] = $effective['api_key'];
     $settings['model'] = trim((string)($body['model'] ?? '')) !== '' ? trim((string)$body['model']) : $effective['model'];
     $settings['base_url'] = $effective['base_url'];
+    // The stable /api/info route is a better connectivity probe than the
+    // experimental generation route, and it does not spend any tokens.
+    if ($settings['provider'] === 'opencode-server') {
+        $probe = aimServerRequest($settings['base_url'] ?: aimEffectiveBaseUrl($settings, 'opencode-server'), '/api/info', $settings['api_key'], null, 8);
+        if (!$probe['success']) {
+            aimLog('Test failed: OpenCode server unreachable: ' . $probe['error']);
+            return json(['success'=>false,'error'=>'OpenCode server unreachable: ' . $probe['error']]);
+        }
+        if ($settings['model'] === '') {
+            aimLog('Test SUCCESS opencode-server (info only)');
+            return json(['success'=>true,'message'=>'Connected','reply'=>'OpenCode server reachable — no model selected, the server default will be used','provider'=>'opencode-server','model'=>'(server default)']);
+        }
+    }
     // Build minimal test message
     $messages = [['role'=>'user','content'=>'Reply with exactly: OK']];
     $tools = []; // no tools for test
@@ -2082,7 +2180,11 @@ function aimChatEndpoint() {
     if ($effSettings['provider'] !== 'ollama' && empty($effSettings['api_key'])) {
         return json(['success'=>false,'error'=>'API key not configured for default provider ' . $defProvider . '. Go to Config and add it.']);
     }
-    if (empty($effSettings['model'])) return json(['success'=>false,'error'=>'Model not configured for default provider ' . $defProvider]);
+    // A self-hosted OpenCode server has its own default model, so an empty
+    // selection is valid there; all cloud providers need an explicit model.
+    if (empty($effSettings['model']) && $effSettings['provider'] !== 'opencode-server') {
+        return json(['success'=>false,'error'=>'Model not configured for default provider ' . $defProvider]);
+    }
 
     // Keep timestamp title - do not rename from prompt (user requested Chat YYYY-MM-DD, h:mm:ss AM format)
     // Title is already set at creation to Chat Y-m-d, g:i:s A; leave as is even on first message

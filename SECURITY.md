@@ -16,7 +16,7 @@ Please open a GitHub issue or email the maintainer. Do not disclose API keys or 
 - Keys are **never logged** — log redaction replaces keys with `***`.
 - Prompts and FPP context (status/settings/playlist names) are sent to the **configured provider only** when you click Send/Test. No background transmission.
 - Tool calls that modify FPP run with **auto-approve on by default** (each tool executes immediately after the AI reply). Uncheck Auto-Approve in Config to require manual approval per call. Dry-run shows the diff without executing.
-- Ollama and an OpenCode server you host keep data on your LAN; cloud providers (including `opencode.ai`) send data off-device — choose accordingly. An OpenCode server may itself forward prompts to its configured providers. `oc_sk_` keys are redacted from logs too.
+- Ollama and an OpenCode server you host keep data on your LAN; cloud providers (including `opencode.ai`) send data off-device — choose accordingly. An OpenCode server may itself forward prompts to its configured providers. `oc_sk_` keys are redacted from logs too. OpenCode's API password is stored in the same 0600 credential file and is sent as HTTP Basic auth (never in a URL or log).
 - The plugin only calls local FPP APIs at `http://localhost/api/*` via the proxied Apache path (never the raw `fppd` port `32322`); it does not open inbound ports.
 - Keep FPP and the plugin updated via **Content Setup → Plugin Manager**, which respects the pinned version and re-shows the privacy disclosure when it changes.
 

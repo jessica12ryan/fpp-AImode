@@ -93,7 +93,7 @@ $showDevTab = $uiLevel >= 3;
                     <tr><td>Ollama <span class="badge bg-secondary" style="font-size:10px;">Not installed</span></td><td><i>No key</i> — <b>not installed by default</b>. If you have Ollama, set Base URL to <code>http://&lt;ollama-ip&gt;:11434</code></td><td><code>llama3.1</code> (default) • <code>llama3.3</code>, <code>qwen3</code>, <code>gemma3</code></td></tr>
                     <tr><td>Azure</td><td>Azure key, Base URL <code>https://{endpoint}.openai.azure.com</code>, Model = deployment name</td><td><code>gpt-4o</code>, <code>gpt-5</code>, <code>o3</code></td></tr>
                     <tr><td>OpenCode Console</td><td>Key <code>oc_sk_…</code>, default <code>opencode.ai/inference</code></td><td>live list from OpenCode; default <code>glm-5.3</code>. Paid model or Go subscription required — free models give 403 outside OpenCode.</td></tr>
-                    <tr><td>OpenCode Server <span class="badge bg-secondary" style="font-size:10px;">experimental</span></td><td>Optional bearer token, Base URL <code>http://&lt;host&gt;:4096</code></td><td>live list from your server; JSON tool-call adapter (experimental)</td></tr>
+                    <tr><td>OpenCode Server <span class="badge bg-secondary" style="font-size:10px;">experimental</span></td><td>Optional password (Basic auth as <code>opencode:&lt;password&gt;</code>) or token; Base URL <code>http://&lt;host&gt;:4096</code></td><td>live list from your server; JSON tool-call adapter (experimental)</td></tr>
                 </tbody>
             </table>
             </div>

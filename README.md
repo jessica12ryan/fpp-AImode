@@ -68,11 +68,11 @@ sudo chown -R fpp:fpp fpp-AImode
 | **Ollama** | *(none)* | `— not installed` (set to `http://<ollama-host>:11434` if you have it) | `llama3.1` (default) • `llama3.3`, `qwen2.5`, `qwen3`, `gemma3`, `phi4`, `deepseek-r1` |
 | **Azure OpenAI** | Azure key | `https://{endpoint}.openai.azure.com` | your deployment name = model field (`gpt-4o`, `gpt-5`, `o3`) |
 | **OpenCode Console** | `oc_sk_…` | `https://opencode.ai/inference` | live list from `/inference/v1/models`; default `glm-5.3` |
-| **OpenCode Server** *(experimental)* | *(optional bearer token)* | `http://localhost:4096` (set your server's URL) | live list from your server's `/api/model` |
+| **OpenCode Server** *(experimental)* | *(optional password/token)* | `http://localhost:4096` (set your server's URL) | live list from your server's `/api/model` |
 
 > **OpenCode Console:** free-tier models return HTTP 403 to external clients — use a paid model or an OpenCode Go subscription. Models are routed automatically by the `recommended_api` field in OpenCode's model list (Chat Completions, Anthropic Messages, Responses, or Gemini generateContent).
 
-> **OpenCode Server:** connect to `opencode serve` on your LAN or elsewhere. The stateless `/api/experimental/generate/text` endpoint is used with a JSON tool-call adapter, so tool calls are experimental. Your server may forward prompts to its own configured providers.
+> **OpenCode Server:** connect to `opencode serve` on your LAN or elsewhere. OpenCode's HTTP API uses **HTTP Basic auth**: on the machine running OpenCode, `opencode service status` shows the URL, and the password is in `~/.local/state/opencode/service.json` (or set `OPENCODE_PASSWORD` for a foreground server). Paste that password into the plugin's **API Key** field — it is sent as `opencode:<password>` Basic auth. You can also enter `user:password`, `Basic <base64>`, or `Bearer <token>` for a server configured with token auth. Leave it blank for an unauthenticated server. Test Connection probes `/api/info`; model fetching uses `/api/model`. The stateless `/api/experimental/generate/text` endpoint is used for chat with a JSON tool-call adapter, so tool calls are experimental. Your server may forward prompts to its own configured providers.
 
 > Model IDs change often. The lists below are fallbacks — use **Refresh models** in Config to fetch the live list from your provider; whatever you save is used as-is.
 

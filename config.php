@@ -377,6 +377,7 @@ var aimConfig = {
         // Ensure default for this provider is flash for Gemini (already first in preset = gemini-3.6-flash)
         if(!list || !list.length) list = meta.models || [];
         var sel = $('#aim_model_select').empty();
+        if (prov==='opencode-server') sel.append($('<option>',{value:'',text:'Use server default'}));
         (list||[]).forEach(function(m){ sel.append($('<option>',{value:m,text:m})); });
         var cur = $('#aim_model').val();
         if (cur && list.indexOf(cur)===-1 && cur.indexOf('/')===-1) {
@@ -474,7 +475,7 @@ var aimConfig = {
             model: $('#aim_model').val() || $('#aim_model_select').val(),
             base_url: $('#aim_base_url').val()
         };
-        if(!data.model){ $.jGrowl('Model required',{themeState:'error'}); return; }
+        if(!data.model && prov!=='opencode-server'){ $.jGrowl('Model required',{themeState:'error'}); return; }
         if(prov!=='ollama' && !typedKey && !hadKey){
             if(prov!=='opencode-server' && !confirm('No API key for '+prov+'. Save anyway?')) return;
         }

@@ -771,6 +771,8 @@ var aimConv = {
             } else {
                 $('#aimConvProviderStatus').html('<span class="text-secondary">Preset '+presetImmediate.length+' — fetching live…</span>');
             }
+        } else if (prov==='opencode-server') {
+            sel.append($('<option>',{value:'',text:'Use server default'}));
         } else {
             sel.append($('<option>',{value:'',text:'Loading…'}));
         }
